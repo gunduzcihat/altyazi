@@ -13,5 +13,5 @@ YouTube videolarını eş zamanlı Türkçe altyazıyla izlemek için tek sayfal
 
 ## Dosyalar
 - `index.html`: uygulamanın tamamı
-- `manifest.webmanifest`, `icons/`: ana ekran kısayolu
-- `fonts/`: Atkinson Hyperlegible Next (SIL OFL 1.1)
+- `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`: ana ekran kısayolu
+- `ahn-*.woff2`: Atkinson Hyperlegible Next (SIL OFL 1.1)
