@@ -285,7 +285,7 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
       <legend>Tanılama</legend>
       <textarea id="logBox" readonly aria-label="Tanılama kaydı"></textarea>
       <div class="row"><button class="btn" type="button" id="logCopy">Kaydı kopyala</button></div>
-      <p class="hint">Bir şey çalışmazsa bu kaydı gönder. Anahtarın kayıtta yer almaz.</p>
+      <p class="hint">Bir şey çalışmazsa bu kaydı gönder. Anahtarın kayıtta yer almaz. <span id="verTag"></span></p>
     </fieldset>
   </div>
 </dialog>
@@ -553,7 +553,8 @@ function normalize(arr, c, clipS){
     x.a = Math.max(0, x.a);
     if(next && next.a < x.a + 0.6) next.a = x.a + 0.6;            /* same-second cues: keep both readable */
     if(!isFinite(x.b) || x.b <= x.a) x.b = x.a + clamp(x.tr.length * 0.065, 1.2, 6);
-    if(x.b - x.a > 20) x.b = x.a + 20;
+    const stay = clamp(1.5 + x.tr.length * 0.11, 3, 9);
+    if(x.b - x.a > stay) x.b = x.a + stay;
     if(next && x.b > next.a) x.b = next.a;
   }
   const out = [];
@@ -562,7 +563,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3;
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 4;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -1051,6 +1052,7 @@ function openSheet(){
   $('keySetMsg').hidden = true;
   fillModels(); syncLabel();
   $('logBox').value = LOG.slice().reverse().join('\n');
+  $('verTag').textContent = 'Sürüm ' + VERSION + '.';
   const d = $('sheet');
   if(d.showModal){ if(!d.open) d.showModal(); } else d.setAttribute('open', '');
 }
@@ -1095,7 +1097,7 @@ window.addEventListener('pagehide', savePos);
 
 applyLook();
 renderHome();
-log('boot', { standalone: !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches) || !!navigator.standalone, ua: navigator.userAgent.slice(0, 90) });
+log('boot', { v: VERSION, standalone: !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches) || !!navigator.standalone, ua: navigator.userAgent.slice(0, 90) });
 const boot = idFromLocation();
 if(boot){ try{ history.replaceState({ v:boot }, '', location.pathname + '#v=' + boot); }catch(_){} openVideo(boot, false); }
 
