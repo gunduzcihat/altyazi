@@ -1,0 +1,1019 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Altyazı</title>
+<meta name="description" content="YouTube videolarını eş zamanlı Türkçe altyazıyla izle.">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="theme-color" content="#0d1016">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Altyazı">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+@font-face{font-family:'Atkinson Hyperlegible Next';font-weight:400;font-display:swap;src:url(fonts/ahn-latin-400.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215}
+@font-face{font-family:'Atkinson Hyperlegible Next';font-weight:400;font-display:swap;src:url(fonts/ahn-latin-ext-400.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1E00-1E9F,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:'Atkinson Hyperlegible Next';font-weight:600;font-display:swap;src:url(fonts/ahn-latin-600.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215}
+@font-face{font-family:'Atkinson Hyperlegible Next';font-weight:600;font-display:swap;src:url(fonts/ahn-latin-ext-600.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1E00-1E9F,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:'Atkinson Hyperlegible Next';font-weight:700;font-display:swap;src:url(fonts/ahn-latin-700.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215}
+@font-face{font-family:'Atkinson Hyperlegible Next';font-weight:700;font-display:swap;src:url(fonts/ahn-latin-ext-700.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1E00-1E9F,U+20A0-20AB,U+20AD-20C0}
+
+/* Layout: a screening room. Video pinned to the top edge, the spoken line directly under it
+   in subtitle yellow, the script scrolling beneath. One look, dark, by choice. */
+:root{
+  --ink:#0d1016;      /* ground: projection-booth dark, biased blue */
+  --ink-2:#141922;    /* raised surface */
+  --ink-3:#1d2430;    /* controls */
+  --line:#293140;     /* hairlines */
+  --text:#e9edf3;
+  --mute:#929cad;
+  --dim:#727d90;
+  --sub:#ffd84a;      /* subtitle yellow */
+  --warn:#ff8f70;
+  --sub-color:var(--sub);
+  --sub-size:22px;
+  --ui:'Atkinson Hyperlegible Next',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--ink);color:var(--text);font:400 16px/1.45 var(--ui);-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;touch-action:manipulation}
+:focus-visible{outline:2px solid var(--sub);outline-offset:2px}
+
+#app{min-height:100%;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+#app[data-view="watch"]{height:100dvh;min-height:0;overflow:hidden}
+
+/* ── top bar ── */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 8px 6px 16px;flex:none}
+.mark{display:inline-flex;align-items:center;gap:9px;background:none;border:0;padding:8px 0;font-weight:700;font-size:17px;letter-spacing:-.01em}
+.mark i{display:grid;gap:3px;width:18px}
+.mark i::before,.mark i::after{content:"";height:3px;border-radius:2px;background:var(--sub)}
+.mark i::after{width:11px;justify-self:center}
+.icon-btn{display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:10px;background:none;color:var(--mute)}
+.icon-btn:active{background:var(--ink-3)}
+.icon-btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── home ── */
+#home{width:100%;max-width:560px;margin-inline:auto;padding:28px 20px calc(40px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:36px}
+.lede{margin:0;font-size:clamp(26px,7.4vw,34px);line-height:1.14;font-weight:700;letter-spacing:-.02em;color:var(--sub);text-wrap:balance}
+#openForm{display:flex;flex-direction:column;gap:10px}
+#openForm label,.set label.lbl,.set .lbl{font-size:13px;color:var(--mute)}
+.field{display:flex;align-items:center;background:var(--ink-2);border:1px solid var(--line);border-radius:12px;min-width:0}
+.field:focus-within{border-color:var(--mute)}
+.field input{flex:1;min-width:0;height:54px;padding:0 4px 0 16px;background:none;border:0;outline:0;font-size:16px}
+.field input::placeholder{color:var(--dim)}
+.field button{flex:none;height:38px;margin-right:8px;padding:0 14px;border:0;border-radius:8px;background:var(--ink-3);font-size:14px;font-weight:600}
+.primary{height:54px;border:0;border-radius:12px;background:var(--sub);color:#16130a;font-weight:700;font-size:16px}
+.primary:active{filter:brightness(.92)}
+.err{margin:0;font-size:14px;color:var(--warn)}
+.ok{margin:0;font-size:14px;color:var(--sub)}
+
+.card{border:1px solid var(--line);border-radius:14px;background:var(--ink-2);padding:18px;display:flex;flex-direction:column;gap:14px}
+.card h2,.sec h2{margin:0;font-size:16px;font-weight:700}
+.card p{margin:0;font-size:14px;color:var(--mute)}
+.steps{margin:0;padding:0 0 0 1.25em;font-size:14px;display:grid;gap:6px}
+.steps a{color:var(--sub);text-underline-offset:3px}
+.keyrow{display:flex;gap:8px;min-width:0}
+.keyrow input{flex:1;min-width:0;height:46px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--ink);font-size:16px}
+.keyrow button,.btn{flex:none;height:46px;padding:0 16px;border:1px solid var(--line);border-radius:10px;background:var(--ink-3);font-weight:600;font-size:15px}
+
+.sec{display:flex;flex-direction:column;gap:12px}
+.sec h2{font-size:13px;font-weight:400;color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.recent{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.recent button{display:grid;grid-template-columns:112px minmax(0,1fr);gap:14px;align-items:center;width:100%;padding:8px;margin-inline:-8px;width:calc(100% + 16px);border:0;border-radius:12px;background:none;text-align:left}
+.recent button:active{background:var(--ink-2)}
+.recent img{width:112px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--ink-3);display:block}
+.recent b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-weight:600;font-size:15px;line-height:1.3}
+.recent small{display:block;margin-top:4px;font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+
+/* ── watch ── */
+#watch{flex:1;min-height:0;display:flex;flex-direction:column}
+.stage{flex:none;background:#000}
+.frame{position:relative;width:100%;aspect-ratio:16/9;max-height:52dvh;margin-inline:auto}
+.frame iframe,.frame #player{position:absolute;inset:0;width:100%;height:100%;border:0}
+.strip{flex:none;position:relative;display:flex;gap:2px;height:3px;background:var(--ink)}
+.strip span{height:100%;background:var(--ink-3);min-width:1px}
+.strip .ready{background:var(--sub)}
+.strip .loading,.strip .wait{background:var(--mute);animation:pulse 1.1s ease-in-out infinite}
+.strip .error{background:var(--warn)}
+.strip b{position:absolute;top:-2px;width:2px;height:7px;margin-left:-1px;background:var(--text);border-radius:1px}
+@keyframes pulse{50%{opacity:.35}}
+
+.band{flex:none;display:grid;color:inherit;font:inherit;align-content:center;justify-items:center;gap:6px;width:100%;min-height:calc(var(--sub-size)*1.28*3 + 28px);padding:14px 20px;border:0;border-bottom:1px solid var(--line);background:var(--ink);text-align:center}
+.band.with-en{min-height:calc(var(--sub-size)*1.28*3 + var(--sub-size)*.62*1.35*2 + 34px)}
+.sub{display:block;max-width:24em;font-size:var(--sub-size);line-height:1.28;font-weight:600;color:var(--sub-color);text-wrap:balance;overflow-wrap:anywhere}
+.orig{display:block;max-width:34em;font-size:calc(var(--sub-size)*.62);line-height:1.35;color:var(--mute);text-wrap:balance}
+.note{display:block;font-size:15px;color:var(--mute);text-wrap:balance}
+.note.busy::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:dots 1.2s steps(4,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+.raw{max-width:100%;font:400 11px/1.4 var(--mono);color:var(--dim);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.act{display:inline-grid;place-items:center;height:36px;padding:0 14px;border:1px solid var(--line);border-radius:9px;background:var(--ink-3);font-size:14px;font-weight:600;color:var(--text)}
+
+.bar{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.chip{height:36px;padding:0 13px;border:1px solid var(--line);border-radius:9px;background:var(--ink-2);font-size:14px;font-weight:600;white-space:nowrap}
+.chip[aria-pressed="true"]{border-color:var(--sub);color:var(--sub)}
+.chip:active{background:var(--ink-3)}
+.status{margin-left:auto;min-width:0;font-size:13px;font-variant-numeric:tabular-nums;color:var(--dim);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.script{flex:1;min-height:0;overflow-y:auto;margin:0;padding:6px 0 calc(28px + env(safe-area-inset-bottom,0px));list-style:none;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.script li{display:grid;grid-template-columns:52px minmax(0,1fr);gap:4px;padding:9px 16px;cursor:pointer}
+.script .t{padding-top:2px;font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+.script .tr{display:block;font-size:16px;line-height:1.38;color:var(--mute)}
+.script .en{display:none;margin-top:2px;font-size:13px;line-height:1.38;color:var(--dim)}
+.script.show-en .en{display:block}
+.script li.on{background:var(--ink-2)}
+.script li.on .tr{color:var(--text)}
+.script li.on .t{color:var(--sub)}
+.script li.tail{display:block;cursor:default;padding:18px 16px;font-size:13px;color:var(--dim)}
+
+/* phone held sideways: only the picture and the line */
+@media (orientation:landscape) and (max-height:540px){
+  #app[data-view="watch"]{padding-top:0}
+  #app[data-view="watch"] .top,.bar,.script{display:none}
+  #watch{--band-h:calc(var(--sub-size)*1.28*2 + 18px + env(safe-area-inset-bottom,0px));--pic-h:calc(100dvh - var(--band-h) - 3px)}
+  .stage{display:flex;justify-content:center}
+  .frame{flex:none;aspect-ratio:auto;height:var(--pic-h);width:calc(var(--pic-h)*16/9);max-width:100%;max-height:none}
+  .band,.band.with-en{height:var(--band-h);min-height:0;overflow:hidden;padding:6px max(20px,env(safe-area-inset-left,0px)) calc(6px + env(safe-area-inset-bottom,0px));border-bottom:0}
+  .band .orig,.band .raw{display:none}
+}
+@media (min-width:760px) and (min-height:541px){
+  #watch{width:100%;max-width:880px;margin-inline:auto}
+}
+
+/* ── settings sheet ── */
+dialog{width:100%;max-width:560px;max-height:88dvh;margin:auto auto 0;padding:8px 20px calc(24px + env(safe-area-inset-bottom,0px));border:0;border-radius:18px 18px 0 0;background:var(--ink-2);color:var(--text);overflow-y:auto}
+dialog::backdrop{background:rgba(4,6,10,.66)}
+.sheet-head{position:sticky;top:-8px;z-index:1;display:flex;align-items:center;justify-content:space-between;margin:0 -20px;padding:10px 12px 10px 20px;background:var(--ink-2)}
+.sheet-head h2{margin:0;font-size:17px}
+.set{display:flex;flex-direction:column;gap:22px}
+.set fieldset{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:10px}
+.set legend{padding:0;margin-bottom:10px;font-size:13px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;border-radius:12px;background:var(--ink)}
+.seg label{position:relative;display:grid;place-items:center;height:40px;border-radius:9px;font-size:14px;font-weight:600;color:var(--mute)}
+.seg input{position:absolute;inset:0;opacity:0;margin:0}
+.seg label:has(input:checked){background:var(--ink-3);color:var(--text)}
+.seg label:has(input:focus-visible){outline:2px solid var(--sub)}
+.sync{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px}
+.sync output{text-align:center;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.hint{margin:0;font-size:13px;color:var(--dim)}
+.set select{width:100%;height:46px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--ink)}
+.set textarea{width:100%;height:120px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--ink);color:var(--mute);font:400 11px/1.45 var(--mono);resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn.danger{color:var(--warn)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div id="app" data-view="home">
+  <header class="top">
+    <button class="mark" id="homeBtn" type="button" aria-label="Altyazı, ana sayfa"><i aria-hidden="true"></i>Altyazı</button>
+    <button class="icon-btn" id="setBtn" type="button" aria-label="Ayarlar">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+    </button>
+  </header>
+
+  <main id="home">
+    <h1 class="lede">İngilizce videoyu Türkçe altyazıyla izle.</h1>
+
+    <form id="openForm" novalidate>
+      <label for="url">YouTube bağlantısı</label>
+      <div class="field">
+        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="youtube.com/watch?v=…" enterkeyhint="go">
+        <button type="button" id="pasteBtn">Yapıştır</button>
+      </div>
+      <button class="primary" type="submit">Altyazılı aç</button>
+      <p class="err" id="openErr" hidden></p>
+    </form>
+
+    <section class="card" id="keyCard" hidden>
+      <h2>Bir kerelik kurulum: çeviri anahtarı</h2>
+      <p>Videoyu dinleyip Türkçeye çeviren model Google Gemini. Ücretsiz bir anahtarla çalışır. Anahtar yalnızca bu cihazda saklanır.</p>
+      <ol class="steps">
+        <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> adresini aç, Google hesabınla gir.</li>
+        <li>“Create API key” düğmesine bas, çıkan anahtarı kopyala.</li>
+        <li>Aşağıya yapıştır, kaydet.</li>
+      </ol>
+      <div class="keyrow">
+        <input id="keyHome" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Anahtar" aria-label="Gemini anahtarı">
+        <button type="button" id="keyHomeSave">Kaydet</button>
+      </div>
+      <p id="keyHomeMsg" hidden></p>
+    </section>
+
+    <section class="sec" id="recentSec" hidden>
+      <h2>Son izlenenler</h2>
+      <ul class="recent" id="recent"></ul>
+    </section>
+  </main>
+
+  <main id="watch" hidden>
+    <div class="stage"><div class="frame" id="frame"></div></div>
+    <div class="strip" id="strip" aria-hidden="true"></div>
+    <button class="band" id="band" type="button" aria-label="Satırı baştan dinle">
+      <span class="sub" id="subTr"></span>
+      <span class="orig" id="subEn" hidden></span>
+      <span class="note" id="subNote" hidden></span>
+      <span class="raw" id="subRaw" hidden></span>
+      <span class="act" id="subAct" hidden></span>
+    </button>
+    <div class="bar">
+      <button class="chip" id="backBtn" type="button">5 sn geri</button>
+      <button class="chip" id="enBtn" type="button" aria-pressed="false">İngilizcesi</button>
+      <span class="status" id="status"></span>
+    </div>
+    <ol class="script" id="script"></ol>
+  </main>
+</div>
+
+<dialog id="sheet" aria-labelledby="sheetTitle">
+  <div class="sheet-head">
+    <h2 id="sheetTitle">Ayarlar</h2>
+    <button class="icon-btn" id="sheetClose" type="button" aria-label="Kapat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="set">
+    <fieldset>
+      <legend>Altyazı</legend>
+      <div class="seg" id="sizeSeg">
+        <label><input type="radio" name="size" id="size-18" value="18">Küçük</label>
+        <label><input type="radio" name="size" id="size-22" value="22">Orta</label>
+        <label><input type="radio" name="size" id="size-26" value="26">Büyük</label>
+        <label><input type="radio" name="size" id="size-31" value="31">En büyük</label>
+      </div>
+      <div class="seg" id="colorSeg">
+        <label><input type="radio" name="color" id="color-sub" value="sub">Sarı</label>
+        <label><input type="radio" name="color" id="color-white" value="white">Beyaz</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Eşitleme</legend>
+      <div class="sync">
+        <button class="btn" type="button" id="syncEarly">Öne al</button>
+        <output id="syncOut">Kaydırma yok</output>
+        <button class="btn" type="button" id="syncLate">Geciktir</button>
+      </div>
+      <p class="hint">Altyazı konuşmadan sonra geliyorsa öne al, önce geliyorsa geciktir. Her dokunuş 0,5 saniye.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Çeviri</legend>
+      <label class="lbl" for="keySet">Gemini anahtarı</label>
+      <div class="keyrow">
+        <input id="keySet" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Anahtar">
+        <button type="button" id="keySetSave">Kaydet</button>
+      </div>
+      <p id="keySetMsg" hidden></p>
+      <label class="lbl" for="modelSel">Model</label>
+      <select id="modelSel"><option value="auto">Otomatik</option></select>
+    </fieldset>
+
+    <fieldset id="videoSet" hidden>
+      <legend>Bu video</legend>
+      <div class="row"><button class="btn danger" type="button" id="retranslate">Çeviriyi sil, yeniden çevir</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tanılama</legend>
+      <textarea id="logBox" readonly aria-label="Tanılama kaydı"></textarea>
+      <div class="row"><button class="btn" type="button" id="logCopy">Kaydı kopyala</button></div>
+      <p class="hint">Bir şey çalışmazsa bu kaydı gönder. Anahtarın kayıtta yer almaz.</p>
+    </fieldset>
+  </div>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+
+/* ───────── small helpers ───────── */
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(_){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(_){ return false; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(_){} }
+};
+function fmt(sec){
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+/* "07:42.5" | "1:07:42" | 462.5 -> seconds */
+function parseT(x){
+  if(typeof x === 'number') return x;
+  if(typeof x !== 'string') return NaN;
+  const p = x.trim().replace(',', '.').split(':').map(Number);
+  if(!p.length || p.some((n) => !isFinite(n))) return NaN;
+  return p.reduce((acc, n) => acc * 60 + n, 0);
+}
+function parseVideoId(s){
+  if(!s) return null;
+  s = String(s).trim();
+  const m = s.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|live\/|embed\/|v\/))([A-Za-z0-9_-]{11})/);
+  if(m) return m[1];
+  return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;
+}
+
+/* ───────── settings + diagnostics ───────── */
+const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0 }, store.get('ay:set', {}));
+const saveSet = () => store.set('ay:set', set);
+const LOG = store.get('ay:log', []);
+function log(ev, data){
+  let d = '';
+  if(data !== undefined){ try{ d = typeof data === 'string' ? data : JSON.stringify(data); }catch(_){ d = String(data); } }
+  LOG.push(new Date().toISOString().slice(5, 19).replace('T', ' ') + ' ' + ev + (d ? ' ' + d.slice(0, 400) : ''));
+  while(LOG.length > 60) LOG.shift();
+  store.set('ay:log', LOG);
+}
+function applyLook(){
+  const r = document.documentElement.style;
+  r.setProperty('--sub-size', set.size + 'px');
+  r.setProperty('--sub-color', set.color === 'white' ? '#ffffff' : 'var(--sub)');
+  $('enBtn').setAttribute('aria-pressed', String(!!set.showEn));
+  $('script').classList.toggle('show-en', !!set.showEn);
+  $('band').classList.toggle('with-en', !!set.showEn);
+}
+
+/* ───────── Gemini client ───────── */
+const API = 'https://generativelanguage.googleapis.com/v1beta';
+const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
+const FLAG_ORDER = ['thinking', 'mediaRes', 'offsets', 'schema'];   // optional request features, dropped in this order on HTTP 400
+const SCHEMA = { type:'ARRAY', items:{ type:'OBJECT',
+  properties:{
+    a:{ type:'STRING', description:'cue start as MM:SS.s on the full-video timeline' },
+    b:{ type:'STRING', description:'cue end as MM:SS.s on the full-video timeline' },
+    en:{ type:'STRING', description:'the words spoken during the cue, verbatim' },
+    tr:{ type:'STRING', description:'the Turkish subtitle for the cue' } },
+  required:['a','b','en','tr'], propertyOrdering:['a','b','en','tr'] } };
+const SYS = `You are an expert subtitle translator who works directly from audio and writes Turkish subtitles.
+
+TASK
+Listen to the speech in the provided video segment and return Turkish subtitles for it as a JSON array of cues in chronological order. Each cue is an object with exactly these string fields: "a", "b", "en", "tr". Return only the JSON array.
+
+TIMING
+- "a" is the moment the cue's speech begins and "b" the moment it ends, written as MM:SS.s (minutes may exceed 59, for example "07:42.5" or "83:05.0").
+- Use the timeline of the FULL video, exactly as the YouTube player shows it. Do not count from the start of the segment.
+- Be as precise as you can. A cue must be on screen while its words are being spoken.
+- One cue covers about 2 to 6 seconds of speech and never more than 8 seconds.
+- Cover all speech in the segment, from its first second to its last, without skipping anything. If a sentence is cut off at the edge of the segment, still subtitle the part you can hear.
+
+TEXT
+- "en": the words spoken during the cue, verbatim, lightly cleaned (drop "um", "uh" and false starts).
+- "tr": the Turkish subtitle for the cue.
+- Translate meaning, not word order. Understand the whole sentence first, then spread its Turkish translation across the cues so that each cue reads as a natural phrase and the cues read in sequence form correct Turkish sentences. Turkish is verb-final, so a Turkish cue does not have to mirror the exact English words of that cue, but it must stay close to what is being said at that moment.
+- Write natural, fluent Turkish as in professional subtitling. No translationese, no word-for-word calques.
+- At most 84 characters per cue. Condense when needed, but never drop numbers, names, negations or conditions.
+- Keep proper names, product names, code and the technical terms Turkish professionals normally say in English (for example "prompt", "token", "framework", "design system") as they are. Otherwise use the established Turkish term.
+- Translate idioms and jokes by meaning, with a natural Turkish equivalent.
+- No speaker labels, no sound descriptions such as [music] or [applause], no notes or explanations.
+- If the speech is in a language other than English, write "en" in the spoken language and "tr" in Turkish. If it is already Turkish, copy it to "tr".
+- If the segment contains no speech, return an empty array [].`;
+
+async function gFetch(path, body, signal){
+  let r;
+  try{
+    r = await fetch(API + '/' + path, {
+      method: body ? 'POST' : 'GET',
+      headers: Object.assign({ 'x-goog-api-key': set.key }, body ? { 'Content-Type':'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined, signal });
+  }catch(e){
+    if(e && e.name === 'AbortError') throw e;
+    const ne = new Error('Ağ hatası: ' + (e && e.message || e)); ne.net = true; throw ne;
+  }
+  let j = null;
+  try{ j = await r.json(); }catch(_){}
+  if(!r.ok){
+    const er = (j && j.error) || {};
+    const e = new Error(er.message || ('HTTP ' + r.status));
+    e.status = r.status; e.gstatus = er.status || ''; e.details = er.details || [];
+    throw e;
+  }
+  return j;
+}
+async function refreshModels(){
+  const j = await gFetch('models?pageSize=1000');
+  const re = /^models\/gemini-(\d+(?:\.\d+)?)-(flash-lite|flash|pro)$/;
+  const found = [];
+  for(const m of (j.models || [])){
+    const mm = re.exec(m.name || '');
+    if(!mm) continue;
+    if(m.supportedGenerationMethods && !m.supportedGenerationMethods.includes('generateContent')) continue;
+    found.push({ id: m.name.slice(7), ver: parseFloat(mm[1]), kind: mm[2] });
+  }
+  found.sort((x, y) => y.ver - x.ver);
+  const pick = (k) => (found.find((f) => f.kind === k) || {}).id || null;
+  set.models = { at: Date.now(), main: pick('flash'), lite: pick('flash-lite'), list: found.map((f) => f.id) };
+  saveSet();
+  log('models', { main: set.models.main, lite: set.models.lite, n: found.length });
+  return set.models;
+}
+function modelCandidates(){
+  const m = set.models || {};
+  const arr = [];
+  if(set.model && set.model !== 'auto') arr.push(set.model);
+  if(m.main) arr.push(m.main);
+  if(m.lite) arr.push(m.lite);
+  for(const f of FALLBACK_MODELS) arr.push(f);
+  return [...new Set(arr)];
+}
+function isKeyError(e){
+  if(e.status === 401) return true;
+  const txt = (e.message || '') + JSON.stringify(e.details || []);
+  return /API[_ ]key not valid|API_KEY_INVALID|API key expired|API_KEY_SERVICE_BLOCKED|missing a valid API key/i.test(txt);
+}
+function quotaInfo(e){
+  const txt = (e.message || '') + JSON.stringify(e.details || []);
+  let delay = 0;
+  for(const d of (e.details || [])) if(d && d.retryDelay) delay = parseFloat(d.retryDelay) || 0;
+  if(!delay){ const m = /retry in ([\d.]+)\s*s/i.exec(e.message || ''); if(m) delay = parseFloat(m[1]); }
+  return { daily: /PerDay|per day|daily/i.test(txt), delay };
+}
+function buildBody(videoId, clipS, clipE, flags, userText){
+  const video = { fileData: { fileUri: 'https://www.youtube.com/watch?v=' + videoId, mimeType: 'video/*' } };
+  if(flags.offsets) video.videoMetadata = { startOffset: clipS + 's', endOffset: clipE + 's' };
+  const gen = {};
+  if(flags.schema){ gen.responseMimeType = 'application/json'; gen.responseSchema = SCHEMA; }
+  if(flags.mediaRes) gen.mediaResolution = 'MEDIA_RESOLUTION_LOW';
+  if(flags.thinking) gen.thinkingConfig = { thinkingLevel: 'low' };
+  return { systemInstruction: { parts: [{ text: SYS }] }, contents: [{ role:'user', parts: [video, { text: userText }] }], generationConfig: gen };
+}
+function extractText(j){
+  const c = j && j.candidates && j.candidates[0];
+  if(!c){
+    const br = j && j.promptFeedback && j.promptFeedback.blockReason;
+    throw new Error(br ? 'İstek engellendi: ' + br : 'Model boş yanıt döndü');
+  }
+  const text = ((c.content && c.content.parts) || []).filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
+  return { text, finish: c.finishReason || '' };
+}
+function parseCueJson(text){
+  let t = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  let arr = null;
+  try{ arr = JSON.parse(t); }catch(_){
+    const a = t.indexOf('['), z = t.lastIndexOf('}');
+    if(a >= 0 && z > a){ try{ arr = JSON.parse(t.slice(a, z + 1) + ']'); }catch(_){} }
+  }
+  if(arr && !Array.isArray(arr) && Array.isArray(arr.cues)) arr = arr.cues;
+  if(!Array.isArray(arr)) throw new Error('Model yanıtı okunamadı: ' + t.slice(0, 120));
+  return arr;
+}
+/* raw model cues -> clean cues on the full-video timeline, limited to this chunk */
+function normalize(arr, c, clipS){
+  const txt = (v) => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+  let cs = arr.map((o) => ({ a: parseT(o && (o.a != null ? o.a : o.start)), b: parseT(o && (o.b != null ? o.b : o.end)), tr: txt(o && o.tr), en: txt(o && o.en) }))
+              .filter((x) => isFinite(x.a) && x.tr);
+  if(!cs.length) return [];
+  /* The model may count from the start of the clip instead of the start of the video. That reading only
+     holds when the answer begins before the clip does and never runs past the clip's own length. */
+  const lo = c.s - 1.5, hi = c.e + 1.5;
+  let min = Infinity, max = -Infinity;
+  for(const x of cs){ if(x.a < min) min = x.a; if(x.a > max) max = x.a; }
+  const off = (clipS >= 5 && min < clipS - 2 && max <= (c.e + PAD - clipS) + 5) ? clipS : 0;
+  if(off) for(const x of cs){ x.a += off; if(isFinite(x.b)) x.b += off; }
+  cs = cs.filter((x) => x.a >= lo && x.a < hi).sort((x, y) => x.a - y.a);
+  for(let i = 0; i < cs.length; i++){
+    const x = cs[i], next = cs[i + 1];
+    x.a = Math.max(0, x.a);
+    if(next && next.a < x.a + 0.6) next.a = x.a + 0.6;            /* same-second cues: keep both readable */
+    if(!isFinite(x.b) || x.b <= x.a) x.b = x.a + clamp(x.tr.length * 0.065, 1.2, 6);
+    if(x.b - x.a > 9) x.b = x.a + 9;
+    if(next && x.b > next.a) x.b = next.a;
+    x.a = Math.round(x.a * 10) / 10; x.b = Math.round(x.b * 10) / 10;
+  }
+  return cs;
+}
+
+/* ───────── watch session ───────── */
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, TAIL = 45;
+let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
+let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
+
+function planChunks(dur){
+  const size = dur > 3600 ? 480 : 300;
+  const out = [];
+  let s = 0, e = (dur - FIRST < TAIL) ? dur : FIRST;
+  while(s < dur - 0.5){
+    out.push({ s, e, st:'idle', cues:null, tries:0, msg:'' });
+    s = e; e = Math.min(dur, s + size);
+    if(dur - e < TAIL) e = dur;
+  }
+  return out;
+}
+function chunkAt(t){
+  const ch = S.chunks;
+  for(let i = 0; i < ch.length; i++) if(t < ch[i].e) return i;
+  return ch.length - 1;
+}
+function rebuildCues(){
+  const all = [];
+  for(const c of S.chunks){
+    if(c.st !== 'ready' || !c.cues) continue;
+    let own = c.cues;
+    const last = all[all.length - 1];
+    if(last){ let k = 0; while(k < own.length && own[k].a < last.b - 0.4) k++; own = own.slice(k); }   /* overlap at chunk seams */
+    for(const x of own) all.push({ a:x.a, b:x.b, tr:x.tr, en:x.en });
+  }
+  for(let i = 0; i < all.length - 1; i++){
+    const gap = all[i + 1].a - all[i].b;
+    if(gap < 0 || gap < 1.2) all[i].b = all[i + 1].a;             /* no flicker between consecutive lines */
+  }
+  S.cues = all; S.active = -2; bandKey = '';
+  renderScript();
+}
+function cueAt(t){
+  const cs = S.cues;
+  let lo = 0, hi = cs.length - 1, ans = -1;
+  while(lo <= hi){ const mid = (lo + hi) >> 1; if(cs[mid].a <= t){ ans = mid; lo = mid + 1; } else hi = mid - 1; }
+  return (ans >= 0 && t < cs[ans].b) ? ans : -1;
+}
+function saveCache(){
+  if(!S || !S.dur) return;
+  const data = { v:1, dur:S.dur, title:S.title, at:Date.now(),
+    ch: S.chunks.map((c) => ({ s:c.s, e:c.e, c: c.st === 'ready' ? c.cues.map((x) => [x.a, x.b, x.tr, x.en]) : null })) };
+  if(store.set('ay:v:' + S.id, data)) return;
+  /* storage full: drop the oldest other videos and try again */
+  const rec = store.get('ay:recent', []);
+  for(let i = rec.length - 1; i >= 0; i--){
+    if(rec[i].id === S.id) continue;
+    store.del('ay:v:' + rec[i].id);
+    if(store.set('ay:v:' + S.id, data)) return;
+  }
+}
+function touchRecent(extra){
+  if(!S) return;
+  let rec = store.get('ay:recent', []);
+  const old = rec.find((r) => r.id === S.id) || {};
+  rec = rec.filter((r) => r.id !== S.id);
+  rec.unshift(Object.assign({ id:S.id }, old, { title: S.title || old.title || '', dur: S.dur || old.dur || 0, at: Date.now() }, extra || {}));
+  for(const r of rec.splice(24)) store.del('ay:v:' + r.id);
+  store.set('ay:recent', rec);
+}
+
+function closeSession(){
+  if(!S) return;
+  try{ S.ac.abort(); }catch(_){}
+  savePos();
+  S = null; EPOCH++;
+  try{ player && player.destroy && player.destroy(); }catch(_){}
+  player = null; playerReady = false; pstate = -1;
+  wake(false);
+}
+function openVideo(id, push){
+  closeSession();
+  S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, modelIdx:0, noDur:0, live:false, playerErr:'' };
+  const cached = store.get('ay:v:' + id, null);
+  if(cached && cached.dur && Array.isArray(cached.ch)){
+    S.dur = cached.dur; S.title = cached.title || '';
+    S.chunks = cached.ch.map((x) => ({ s:x.s, e:x.e, st: x.c ? 'ready' : 'idle', tries:0, msg:'',
+      cues: x.c ? x.c.map((q) => ({ a:q[0], b:q[1], tr:q[2], en:q[3] })) : null }));
+  }
+  const rec = store.get('ay:recent', []).find((r) => r.id === id);
+  const start = rec && rec.pos > 10 && (!rec.dur || rec.pos < rec.dur - 20) ? Math.floor(rec.pos) : 0;
+  S.t = start;
+  setView('watch');
+  if(push !== false){ try{ history.pushState({ v:id }, '', location.pathname + '#v=' + id); }catch(_){} }
+  rebuildCues(); renderStrip(); renderLive(true);
+  touchRecent();
+  log('open', { id, cached: !!cached, start });
+  mountPlayer(id, start);
+  pump();
+}
+
+/* ── YouTube player ── */
+let ytLoading = null;
+function loadYT(){
+  if(window.YT && window.YT.Player) return Promise.resolve();
+  if(ytLoading) return ytLoading;
+  ytLoading = new Promise((res, rej) => {
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { try{ prev && prev(); }catch(_){} res(); };
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = () => { ytLoading = null; rej(new Error('iframe_api')); };
+    document.head.appendChild(s);
+  });
+  return ytLoading;
+}
+const PLAYER_ERRORS = {
+  2:'Bu bağlantı bir videoya çıkmıyor.',
+  5:'Video bu cihazda oynatılamadı.',
+  100:'Video bulunamadı ya da gizli.',
+  101:'Videonun sahibi başka sitelerde oynatmayı kapatmış. Bu video burada açılamaz.',
+  150:'Videonun sahibi başka sitelerde oynatmayı kapatmış. Bu video burada açılamaz.',
+  153:'YouTube bu sayfada oynatmaya izin vermedi (hata 153).'
+};
+async function mountPlayer(id, start){
+  const ep = S.epoch;
+  $('frame').innerHTML = '<div id="player"></div>';
+  try{ await loadYT(); }
+  catch(_){ if(S && S.epoch === ep){ S.playerErr = 'YouTube oynatıcısı yüklenemedi. Bağlantını kontrol edip sayfayı yenile.'; renderLive(true); } return; }
+  if(!S || S.epoch !== ep) return;
+  player = new YT.Player('player', {
+    videoId: id, width:'100%', height:'100%',
+    playerVars: { playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', start: start || undefined, origin: location.origin },
+    events: {
+      onReady: () => { if(S && S.epoch === ep){ playerReady = true; grabMeta(); } },
+      onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; grabMeta(); wake(e.data === 1); },
+      onError: (e) => { if(!S || S.epoch !== ep) return; S.playerErr = PLAYER_ERRORS[e.data] || ('Oynatıcı hatası: ' + e.data); log('player-error', e.data); renderLive(true); }
+    }
+  });
+}
+function grabMeta(){
+  if(!S || !player || !playerReady) return;
+  try{
+    const vd = player.getVideoData && player.getVideoData();
+    if(vd && vd.title && vd.title !== S.title){ S.title = vd.title; touchRecent(); }
+    const d = player.getDuration && player.getDuration();
+    if(d > 0 && (!S.dur || Math.abs(d - S.dur) > 2)){
+      const had = S.dur;
+      S.dur = d;
+      if(had || !S.chunks.length){ if(had) log('replan', { had, d }); S.chunks = planChunks(d); rebuildCues(); }
+      renderStrip(); touchRecent(); pump();
+    } else if(!(d > 0) && pstate === 1 && !S.dur){
+      if(++S.noDur > 8 && !S.live){ S.live = true; renderLive(true); }
+    }
+  }catch(_){}
+}
+async function wake(on){
+  try{
+    if(on && !wakeLock && navigator.wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    else if(!on && wakeLock){ const w = wakeLock; wakeLock = null; await w.release(); }
+  }catch(_){ wakeLock = null; }
+}
+function seek(t){ try{ player.seekTo(Math.max(0, t), true); if(pstate !== 1) player.playVideo(); anchorT = -1; }catch(_){} }
+function savePos(){ if(S && S.t > 0) touchRecent({ pos: Math.round(S.t) }); }
+
+/* ── translation scheduling: like buffering, a few minutes ahead of the playhead ── */
+function pump(){
+  if(!S || !S.chunks.length || !set.key || S.halt) return;
+  const t = S.t || 0, now = Date.now();
+  for(let i = chunkAt(t); i < S.chunks.length && S.chunks[i].s < t + AHEAD; i++){
+    if(S.inflight >= CONC) break;
+    const c = S.chunks[i];
+    if(c.st === 'idle' || (c.st === 'wait' && now >= c.retryAt)) runChunk(c);
+  }
+}
+async function runChunk(c){
+  const ses = S, ep = S.epoch;
+  c.st = 'loading'; ses.inflight++; renderStrip(); renderLive(true);
+  try{
+    const cues = await translateChunk(ses, c);
+    if(!S || S.epoch !== ep) return;
+    c.cues = cues; c.st = 'ready'; c.msg = '';
+    saveCache(); rebuildCues();
+  }catch(e){
+    if(!S || S.epoch !== ep || (e && e.name === 'AbortError')) return;
+    onChunkError(c, e);
+  }finally{
+    if(S && S.epoch === ep){ ses.inflight--; renderStrip(); renderLive(true); pump(); }
+  }
+}
+function onChunkError(c, e){
+  c.tries++;
+  log('chunk-error', { s:c.s, status:e.status, g:e.gstatus, m:e.message, tries:c.tries });
+  if(isKeyError(e)){
+    S.halt = { msg:'Gemini anahtarı kabul edilmedi.', raw:e.message, act:'key', label:'Anahtarı düzelt' }; c.st = 'idle'; return;
+  }
+  if(e.status === 429){
+    const q = quotaInfo(e);
+    if(q.daily || c.tries >= 5){
+      if(S.modelIdx < modelCandidates().length - 1){ S.modelIdx++; c.tries = 0; c.st = 'idle'; log('model-switch', modelCandidates()[S.modelIdx]); return; }
+      S.halt = { msg:'Ücretsiz çeviri kotası doldu. Kota her gün sıfırlanır; hazır olan bölümler izlenebilir.', raw:e.message, act:'retry', label:'Yeniden dene' };
+      c.st = 'idle'; return;
+    }
+    c.st = 'wait'; c.retryAt = Date.now() + clamp(q.delay || 20, 5, 90) * 1000 + 500;
+    setTimeout(pump, c.retryAt - Date.now() + 50);
+    return;
+  }
+  if((e.net || e.status >= 500) && c.tries < 4){
+    c.st = 'wait'; c.retryAt = Date.now() + [0, 3000, 8000, 20000][c.tries];
+    setTimeout(pump, c.retryAt - Date.now() + 50);
+    return;
+  }
+  c.st = 'error'; c.msg = e.message || String(e);
+}
+async function translateChunk(ses, c){
+  const dur = ses.dur;
+  const clipS = Math.max(0, Math.floor(c.s - PAD));
+  const clipE = Math.max(clipS + 1, Math.min(Math.floor(dur), Math.ceil(c.e + PAD)));
+  if(!set.models || Date.now() - (set.models.at || 0) > 7 * 864e5){ try{ await refreshModels(); }catch(e){ if(isKeyError(e)) throw e; log('models-fail', e.message); } }
+  let ctx = '';
+  const idx = ses.chunks.indexOf(c), prev = idx > 0 ? ses.chunks[idx - 1] : null;
+  if(prev && prev.st === 'ready' && prev.cues && prev.cues.length){
+    ctx = '\nThe subtitles just before this segment were (for continuity of terms and tone, do not repeat them):\n' + prev.cues.slice(-3).map((x) => '- ' + x.tr).join('\n');
+  }
+  for(;;){
+    const models = modelCandidates();
+    const model = models[Math.min(ses.modelIdx, models.length - 1)];
+    const saved = store.get('ay:flags:' + model, {});
+    const flags = Object.assign({ thinking:true, mediaRes:true, offsets:true, schema:true }, saved);
+    let dropped = false, first = null;
+    for(;;){
+      const user = (flags.offsets
+          ? 'This segment runs from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' of the full video'
+          : 'Subtitle ONLY the part of the video from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' and ignore everything else')
+        + ' (full video length ' + fmt(dur) + ').' + (ses.title ? ' Video title: "' + ses.title + '".' : '') + ctx
+        + '\nReturn the cues for this segment only, with times on the full-video timeline.';
+      try{
+        const t0 = performance.now();
+        const j = await gFetch('models/' + model + ':generateContent', buildBody(ses.id, clipS, clipE, flags, user), ses.ac.signal);
+        const out = extractText(j);
+        const raw = parseCueJson(out.text);
+        const cues = normalize(raw, c, clipS);
+        if(raw.length && !cues.length){ log('out-of-range', { s:c.s, e:c.e, raw:raw.length, first:raw[0] && raw[0].a, last:raw[raw.length - 1] && raw[raw.length - 1].a }); throw new Error('Model bu bölüm (' + fmt(c.s) + '–' + fmt(c.e) + ') yerine videonun başka bir yerini çevirdi.'); }
+        if(dropped) store.set('ay:flags:' + model, flags);
+        log('chunk-ok', { s:c.s, e:c.e, model, raw:raw.length, kept:cues.length, fin:out.finish, sec:Math.round((performance.now() - t0) / 100) / 10, tok:(j.usageMetadata || {}).totalTokenCount });
+        /* answer cut off by the output limit: keep what we have, queue the rest as its own chunk */
+        if(/MAX_TOKENS/.test(out.finish) && cues.length){
+          const lastB = cues[cues.length - 1].b;
+          if(c.e - lastB > 20){ const rest = { s:Math.floor(lastB), e:c.e, st:'idle', cues:null, tries:0, msg:'' }; c.e = rest.s; ses.chunks.splice(idx + 1, 0, rest); }
+        }
+        return cues;
+      }catch(e){
+        if(e && e.name === 'AbortError') throw e;
+        if(e.status === 400 && !isKeyError(e)){
+          first = first || e;
+          const k = FLAG_ORDER.find((f) => flags[f]);
+          if(k){ flags[k] = false; dropped = true; log('drop-flag', { model, k, m:e.message }); continue; }
+          throw first;
+        }
+        if(e.status === 404 && ses.modelIdx < models.length - 1){ ses.modelIdx++; log('model-404', model); break; }
+        throw e;
+      }
+    }
+  }
+}
+
+/* ───────── rendering ───────── */
+function setView(v){
+  $('app').dataset.view = v;
+  $('home').hidden = v !== 'home';
+  $('watch').hidden = v !== 'watch';
+  $('videoSet').hidden = v !== 'watch';
+}
+function renderStrip(){
+  const el = $('strip');
+  if(!S || !S.dur || !S.chunks.length){ el.innerHTML = ''; return; }
+  el.innerHTML = S.chunks.map((c) => '<span class="' + c.st + '" style="flex:' + Math.max(1, Math.round(c.e - c.s)) + '"></span>').join('') + '<b id="head"></b>';
+  renderHead();
+}
+function renderHead(){
+  const h = $('head');
+  if(h && S && S.dur) h.style.left = clamp(S.t / S.dur * 100, 0, 100) + '%';
+}
+function renderScript(){
+  const el = $('script');
+  if(!S){ el.innerHTML = ''; return; }
+  let html = '';
+  for(let i = 0; i < S.cues.length; i++){
+    const x = S.cues[i];
+    html += '<li data-i="' + i + '"><span class="t">' + fmt(x.a) + '</span><span><span class="tr">' + esc(x.tr) + '</span>' + (x.en ? '<span class="en" lang="en">' + esc(x.en) + '</span>' : '') + '</span></li>';
+  }
+  const pending = S.chunks.some((c) => c.st !== 'ready');
+  if(S.cues.length && pending) html += '<li class="tail">Devamı, sen izledikçe çevrilir.</li>';
+  el.innerHTML = html;
+}
+function statusText(){
+  if(!S || !set.key || !S.chunks.length) return '';
+  if(S.halt) return 'Çeviri durdu';
+  if(S.chunks.some((c) => c.st === 'loading')) return 'Çevriliyor…';
+  if(S.chunks.some((c) => c.st === 'wait')) return 'Kota bekleniyor';
+  if(S.chunks.every((c) => c.st === 'ready')) return 'Çeviri tamam';
+  let i = chunkAt(S.t), end = -1;
+  while(i < S.chunks.length && S.chunks[i].st === 'ready'){ end = S.chunks[i].e; i++; }
+  return end > 0 ? 'Çevrilen ' + fmt(end) + ' / ' + fmt(S.dur) : '';
+}
+function bandState(){
+  const i = cueAt(S.t - set.offset);
+  if(S.playerErr) return { k:'pe', note:S.playerErr };
+  if(i >= 0) return { k:'c' + i + (set.showEn ? 'e' : ''), cue:S.cues[i], i };
+  if(!set.key) return { k:'nokey', note:'Türkçe altyazı için çeviri anahtarı gerekiyor.', act:'key', label:'Anahtarı gir' };
+  if(S.halt) return { k:'halt' + S.halt.msg, note:S.halt.msg, raw:S.halt.raw, act:S.halt.act, label:S.halt.label };
+  if(S.live) return { k:'live', note:'Canlı yayınlar desteklenmiyor.' };
+  if(!S.chunks.length) return { k:'prep', note:'Video hazırlanıyor', busy:true };
+  const c = S.chunks[chunkAt(S.t)];
+  if(c.st === 'loading') return { k:'load' + c.s, note:'Bu bölüm çevriliyor', busy:true };
+  if(c.st === 'wait'){ const sec = Math.max(1, Math.ceil((c.retryAt - Date.now()) / 1000)); return { k:'wait' + c.s + ':' + sec, note:'Kota sınırı. ' + sec + ' sn sonra devam edecek.' }; }
+  if(c.st === 'error') return { k:'err' + c.s, note:'Bu bölüm çevrilemedi.', raw:c.msg, act:'retry', label:'Yeniden dene' };
+  if(c.st === 'idle') return { k:'idle', note:'Çeviri sırada', busy:true };
+  return { k:'none' };
+}
+function renderLive(force){
+  if(!S) return;
+  const st = bandState();
+  if(force || st.k !== bandKey){
+    bandKey = st.k;
+    const cue = st.cue;
+    $('subTr').textContent = cue ? cue.tr : '';
+    $('subTr').hidden = !cue;
+    $('subEn').textContent = cue && set.showEn ? cue.en : '';
+    $('subEn').hidden = !(cue && set.showEn && cue.en);
+    $('subNote').textContent = st.note || '';
+    $('subNote').hidden = !st.note;
+    $('subNote').classList.toggle('busy', !!st.busy);
+    $('subRaw').textContent = st.raw || '';
+    $('subRaw').hidden = !st.raw;
+    $('subAct').textContent = st.label || '';
+    $('subAct').hidden = !st.act;
+    $('band').dataset.act = st.act || '';
+    $('status').textContent = statusText();
+  }
+  const i = st.i == null ? -1 : st.i;
+  if(i !== S.active){
+    const el = $('script');
+    const old = el.querySelector('li.on'); if(old) old.classList.remove('on');
+    S.active = i;
+    if(i >= 0){
+      const li = el.children[i];
+      if(li){
+        li.classList.add('on');
+        if(Date.now() - lastUserScroll > 4000) el.scrollTo({ top: Math.max(0, li.offsetTop - el.offsetTop - el.clientHeight * 0.3), behavior:'smooth' });
+      }
+    }
+  }
+  renderHead();
+}
+function tick(){
+  if(!S) return;
+  const now = performance.now();
+  if(player && playerReady){
+    let t; try{ t = player.getCurrentTime(); }catch(_){ t = undefined; }
+    if(typeof t === 'number' && isFinite(t)){
+      if(t !== anchorT){ anchorT = t; anchorAt = now; }
+      let est = t;
+      if(pstate === 1){ let rate = 1; try{ rate = player.getPlaybackRate() || 1; }catch(_){} est = t + Math.min(0.6, (now - anchorAt) / 1000 * rate); }
+      S.t = est;
+    }
+  }
+  renderLive(false);
+  if(now - lastSlow > 1500){
+    lastSlow = now;
+    grabMeta(); pump();
+    $('status').textContent = statusText();
+    if(pstate === 1 && Math.floor(now / 1500) % 4 === 0) savePos();
+  }
+}
+setInterval(tick, 80);
+
+/* ── home ── */
+function renderHome(){
+  $('keyCard').hidden = !!set.key;
+  const rec = store.get('ay:recent', []);
+  $('recentSec').hidden = !rec.length;
+  $('recent').innerHTML = rec.map((r) => {
+    const meta = [r.dur ? fmt(r.dur) : '', r.pos > 10 ? 'kaldığın yer ' + fmt(r.pos) : ''].filter(Boolean).join(' · ');
+    return '<li><button type="button" data-id="' + esc(r.id) + '"><img src="https://i.ytimg.com/vi/' + esc(r.id) + '/mqdefault.jpg" alt="" loading="lazy" width="112" height="63"><span><b>' + esc(r.title || 'YouTube videosu') + '</b>' + (meta ? '<small>' + esc(meta) + '</small>' : '') + '</span></button></li>';
+  }).join('');
+}
+function goHome(push){
+  closeSession();
+  setView('home');
+  if(push !== false){ try{ history.pushState(null, '', location.pathname); }catch(_){} }
+  $('frame').innerHTML = '';
+  renderHome();
+}
+function showOpenErr(msg){ $('openErr').textContent = msg || ''; $('openErr').hidden = !msg; }
+
+$('openForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = parseVideoId($('url').value);
+  if(!id){ showOpenErr('Bu bir YouTube bağlantısına benzemiyor. Videonun “Paylaş → Bağlantıyı kopyala” bağlantısını yapıştır.'); return; }
+  showOpenErr(''); $('url').value = ''; $('url').blur();
+  openVideo(id);
+});
+$('pasteBtn').addEventListener('click', async () => {
+  try{
+    const txt = await navigator.clipboard.readText();
+    $('url').value = txt.trim();
+    const id = parseVideoId(txt);
+    if(id){ showOpenErr(''); $('url').value = ''; openVideo(id); }
+    else showOpenErr('Panoda bir YouTube bağlantısı yok.');
+  }catch(_){ $('url').focus(); showOpenErr('Panoya erişilemedi. Kutuya basılı tutup “Yapıştır”ı seç.'); }
+});
+$('recent').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if(b) openVideo(b.dataset.id); });
+$('homeBtn').addEventListener('click', () => { if(S) goHome(); else window.scrollTo({ top:0 }); });
+
+/* ── key ── */
+async function saveKey(input, msgEl){
+  const k = input.value.trim();
+  const say = (cls, t) => { msgEl.className = cls; msgEl.textContent = t; msgEl.hidden = false; };
+  if(!k){ say('err', 'Anahtar boş.'); return; }
+  const before = set.key;
+  set.key = k; say('hint', 'Anahtar deneniyor…');
+  try{
+    await refreshModels();
+    saveSet(); input.value = '';
+    say('ok', 'Anahtar çalışıyor.');
+    log('key-ok');
+    fillModels(); renderHome();
+    if(S){ S.halt = null; for(const c of S.chunks) if(c.st === 'error') c.st = 'idle'; bandKey = ''; pump(); }
+  }catch(e){
+    set.key = before;
+    log('key-fail', { status:e.status, m:e.message });
+    say('err', isKeyError(e) ? 'Bu anahtar kabul edilmedi. Kopyalarken eksik kalmış olabilir.' : 'Anahtar denenemedi: ' + (e.message || e));
+  }
+}
+$('keyHomeSave').addEventListener('click', () => saveKey($('keyHome'), $('keyHomeMsg')));
+$('keySetSave').addEventListener('click', () => saveKey($('keySet'), $('keySetMsg')));
+
+/* ── watch controls ── */
+$('band').addEventListener('click', () => {
+  if(!S) return;
+  const act = $('band').dataset.act;
+  if(act === 'key'){ openSheet(); setTimeout(() => $('keySet').focus(), 50); return; }
+  if(act === 'retry'){ S.halt = null; S.modelIdx = 0; for(const c of S.chunks) if(c.st === 'error'){ c.st = 'idle'; c.tries = 0; } bandKey = ''; pump(); renderLive(true); return; }
+  /* tap the line to hear it again */
+  const i = cueAt(S.t - set.offset);
+  if(i >= 0){ const a = S.cues[i].a + set.offset; seek(S.t - a < 1.2 && i > 0 ? S.cues[i - 1].a + set.offset - 0.2 : a - 0.2); }
+  else seek(S.t - 5);
+});
+$('backBtn').addEventListener('click', () => { if(S) seek(S.t - 5); });
+$('enBtn').addEventListener('click', () => { set.showEn = !set.showEn; saveSet(); applyLook(); bandKey = ''; if(S) renderLive(true); });
+$('script').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-i]');
+  if(li && S){ lastUserScroll = 0; seek(S.cues[+li.dataset.i].a + set.offset - 0.15); }
+});
+for(const ev of ['touchstart', 'wheel', 'pointerdown']) $('script').addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive:true });
+
+/* ── settings sheet ── */
+function fillModels(){
+  const sel = $('modelSel'), m = set.models || {};
+  const auto = m.main ? 'Otomatik (' + m.main + ')' : 'Otomatik';
+  sel.innerHTML = '<option value="auto">' + esc(auto) + '</option>' + (m.list || []).map((id) => '<option value="' + esc(id) + '">' + esc(id) + '</option>').join('');
+  sel.value = (m.list || []).includes(set.model) ? set.model : 'auto';
+}
+function syncLabel(){
+  const o = set.offset;
+  $('syncOut').textContent = !o ? 'Kaydırma yok' : (Math.abs(o).toFixed(1).replace('.', ',') + ' sn ' + (o < 0 ? 'öne alındı' : 'geciktirildi'));
+}
+function openSheet(){
+  const r = $('size-' + set.size); if(r) r.checked = true;
+  $('color-' + (set.color === 'white' ? 'white' : 'sub')).checked = true;
+  $('keySet').placeholder = set.key ? 'Kayıtlı. Yenisini yapıştır' : 'Anahtar';
+  $('keySetMsg').hidden = true;
+  fillModels(); syncLabel();
+  $('logBox').value = LOG.slice().reverse().join('\n');
+  const d = $('sheet');
+  if(d.showModal){ if(!d.open) d.showModal(); } else d.setAttribute('open', '');
+}
+$('setBtn').addEventListener('click', openSheet);
+$('sheetClose').addEventListener('click', () => $('sheet').close());
+$('sheet').addEventListener('click', (e) => { if(e.target === $('sheet')) $('sheet').close(); });
+$('sizeSeg').addEventListener('change', (e) => { set.size = +e.target.value; saveSet(); applyLook(); });
+$('colorSeg').addEventListener('change', (e) => { set.color = e.target.value; saveSet(); applyLook(); });
+function nudge(d){ set.offset = clamp(Math.round((set.offset + d) * 10) / 10, -10, 10); saveSet(); syncLabel(); bandKey = ''; }
+$('syncEarly').addEventListener('click', () => nudge(-0.5));
+$('syncLate').addEventListener('click', () => nudge(0.5));
+$('modelSel').addEventListener('change', (e) => { set.model = e.target.value; saveSet(); if(S){ S.modelIdx = 0; S.halt = null; pump(); } });
+$('retranslate').addEventListener('click', () => {
+  if(!S) return;
+  const id = S.id;
+  store.del('ay:v:' + id);
+  for(const k of modelCandidates()) store.del('ay:flags:' + k);
+  $('sheet').close();
+  openVideo(id, false);
+});
+$('logCopy').addEventListener('click', async () => {
+  const box = $('logBox');
+  try{ await navigator.clipboard.writeText(box.value); $('logCopy').textContent = 'Kopyalandı'; }
+  catch(_){ box.focus(); box.select(); $('logCopy').textContent = 'Metni seçtim, kopyala'; }
+  setTimeout(() => { $('logCopy').textContent = 'Kaydı kopyala'; }, 1800);
+});
+
+/* ── navigation + launch (pasted link, share sheet, home-screen icon) ── */
+function idFromLocation(){
+  const q = new URLSearchParams(location.search);
+  for(const k of ['url', 'text', 'title', 'v']){ const id = parseVideoId(q.get(k)); if(id) return id; }
+  const h = /v=([A-Za-z0-9_-]{11})/.exec(location.hash);
+  return h ? h[1] : null;
+}
+window.addEventListener('popstate', () => {
+  const id = idFromLocation();
+  if(id && (!S || S.id !== id)) openVideo(id, false);
+  else if(!id && S) goHome(false);
+});
+document.addEventListener('visibilitychange', () => { if(document.hidden) savePos(); else if(pstate === 1) wake(true); });
+window.addEventListener('pagehide', savePos);
+
+applyLook();
+renderHome();
+log('boot', { standalone: !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches) || !!navigator.standalone, ua: navigator.userAgent.slice(0, 90) });
+const boot = idFromLocation();
+if(boot){ try{ history.replaceState({ v:boot }, '', location.pathname + '#v=' + boot); }catch(_){} openVideo(boot, false); }
+
+/* test hook: lets automated checks read internal state without touching the UI */
+window.__ay = { get S(){ return S; }, set, parseVideoId, parseT, normalize, planChunks };
+})();
+</script>
+</body>
+</html>
