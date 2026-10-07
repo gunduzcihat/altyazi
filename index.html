@@ -173,6 +173,20 @@ button{cursor:pointer;touch-action:manipulation}
 #app[data-role="tv"] .band .orig,#app[data-role="tv"] .band .raw{display:none}
 #app[data-role="tv"] .sub{max-width:34em}
 #app[data-role="tv"] .note{font-size:calc(var(--sub-size)*.7)}
+#app[data-role="tv"] .card.tv-only{display:flex}
+#app[data-role="tv"] .phone-only{display:none}
+.card .code{margin:4px 0;font-size:clamp(48px,11vh,110px);line-height:1;font-weight:700;letter-spacing:.06em;color:var(--sub);font-variant-numeric:tabular-nums}
+.card .code.small{font-size:clamp(24px,4vh,40px)}
+#app[data-role="tv"] .lede{order:-2}
+#app[data-role="tv"] #tvPair{order:-1}
+#app[data-role="tv"] #tvPair h2{font-size:22px}
+#app[data-role="tv"] #tvPair p:not(.code){font-size:17px}
+#openForm .seg{background:var(--ink-2)}
+#openForm .seg label{font-size:14px}
+#openForm .seg label:has(input:checked){color:var(--text)}
+#tvCode{letter-spacing:.2em;font-variant-numeric:tabular-nums}
+.remote{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.remote .btn{padding:0 6px;font-size:14px}
 .ask{display:flex;gap:10px;flex-wrap:wrap}
 .ask .btn{height:50px}
 .btn.go{background:var(--sub);border-color:var(--sub);color:#16130a}
@@ -227,10 +241,40 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
         <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="youtube.com/watch?v=…" enterkeyhint="go">
         <button type="button" id="pasteBtn">Yapıştır</button>
       </div>
-      <button class="primary" type="submit">Altyazılı aç</button>
+      <div class="seg phone-only" id="targetSeg" hidden>
+        <label><input type="radio" name="target" id="target-phone" value="phone">Bu cihazda</label>
+        <label><input type="radio" name="target" id="target-tv" value="tv">Televizyonda</label>
+      </div>
+      <button class="primary" type="submit" id="openBtn">Altyazılı aç</button>
       <p class="err" id="openErr" hidden></p>
-      <p class="tv-hint tv-only">Kumandayla yazma. Telefonda Google TV uygulamasını aç ve kumandayı başlat: bu kutu seçiliyken telefonda klavye açılır. Bağlantıyı oraya yapıştır; video kendiliğinden açılır.</p>
+      <p id="sendMsg" hidden></p>
+      <p class="tv-hint tv-only">Telefon eşleştiyse videolar oradan gelir. Bağlantıyı bu kutuya da yapıştırabilirsin; video kendiliğinden açılır.</p>
     </form>
+
+    <section class="card tv-only" id="tvPair" hidden>
+      <h2 id="tvPairTitle">Telefonla eşleştir</h2>
+      <p class="code" id="tvCodeBig"></p>
+      <p id="tvPairText"></p>
+    </section>
+
+    <section class="card phone-only" id="tvSec" hidden>
+      <h2>Televizyon</h2>
+      <p id="tvInfo"></p>
+      <div class="remote" id="tvRemote" hidden>
+        <button class="btn" type="button" data-cmd="back">10 sn geri</button>
+        <button class="btn" type="button" data-cmd="toggle">Oynat / Dur</button>
+        <button class="btn" type="button" data-cmd="fwd">10 sn ileri</button>
+      </div>
+      <div class="keyrow" id="tvPairRow">
+        <input id="tvCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="6 haneli kod" aria-label="TV'deki kod">
+        <button type="button" id="tvPairBtn">Bağlan</button>
+      </div>
+      <p id="tvMsg" hidden></p>
+      <div class="row" id="tvManage" hidden>
+        <button class="btn" type="button" id="tvAdd">Başka TV ekle</button>
+        <button class="btn danger" type="button" id="tvForget">Bağlantıları kaldır</button>
+      </div>
+    </section>
 
     <section class="card" id="keyCard" hidden>
       <h2>Bir kerelik kurulum: çeviri anahtarı</h2>
@@ -245,7 +289,7 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
         <button type="button" id="keyHomeSave">Kaydet</button>
       </div>
       <p id="keyHomeMsg" hidden></p>
-      <p class="tv-hint tv-only">Anahtarı da telefondaki Google TV kumandasının klavyesinden yapıştır; kendiliğinden kaydedilir.</p>
+      <p class="tv-hint tv-only">Telefonla eşleştirirsen anahtar kendiliğinden gelir; buraya yazman gerekmez.</p>
     </section>
 
     <section class="sec" id="recentSec" hidden>
@@ -375,7 +419,7 @@ function parseVideoId(s){
 }
 
 /* ───────── settings + diagnostics ───────── */
-const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0, role:'' }, store.get('ay:set', {}));
+const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0, role:'', tvs:[], tvks:[], target:'phone' }, store.get('ay:set', {}));
 const isTv = () => set.role === 'tv';
 const saveSet = () => store.set('ay:set', set);
 const LOG = store.get('ay:log', []);
@@ -614,7 +658,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 5;
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 6;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -1005,11 +1049,202 @@ function tick(){
 }
 setInterval(tick, 80);
 
+/* ───────── phone ↔ television link ─────────
+   No server of our own. The two devices meet on a public relay (a piping server): one side waits on a path,
+   the other posts to it. Pairing swaps ECDH public keys over a path named by the 6-digit code; everything
+   after that is AES-GCM sealed with the shared key, on a path derived from that key. The relay only ever
+   sees ciphertext. */
+const RELAY = String(store.get('ay:relay', '') || 'https://ppng.io').replace(/\/$/, '');
+const canLink = !!(window.crypto && crypto.subtle && window.TextEncoder);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const b64 = (buf) => { const u = new Uint8Array(buf); let x = ''; for(let i = 0; i < u.length; i++) x += String.fromCharCode(u[i]); return btoa(x).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64 = (str) => { const x = atob(String(str).replace(/-/g, '+').replace(/_/g, '/')); const u = new Uint8Array(x.length); for(let i = 0; i < x.length; i++) u[i] = x.charCodeAt(i); return u; };
+const EC = { name:'ECDH', namedCurve:'P-256' };
+const ecNew = () => crypto.subtle.generateKey(EC, true, ['deriveBits']);
+const ecPub = async (kp) => b64(await crypto.subtle.exportKey('raw', kp.publicKey));
+async function ecShared(kp, peer){
+  const pub = await crypto.subtle.importKey('raw', unb64(peer), EC, false, []);
+  const bits = await crypto.subtle.deriveBits({ name:'ECDH', public:pub }, kp.privateKey, 256);
+  return b64(await crypto.subtle.digest('SHA-256', bits));
+}
+const aesOf = (k) => crypto.subtle.importKey('raw', unb64(k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+async function seal(k, obj){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, await aesOf(k), new TextEncoder().encode(JSON.stringify(obj)));
+  return b64(iv) + '.' + b64(ct);
+}
+async function unseal(k, txt){
+  const p = String(txt).trim().split('.');
+  const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv:unb64(p[0]) }, await aesOf(k), unb64(p[1]));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+const chanOf = async (k) => 'ay7k-c-' + b64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('chan:' + k))).slice(0, 32);
+/* true only when the other side actually took the message: the relay answers a post once a listener has read it */
+async function relayPost(path, text, ms){
+  const ac = new AbortController(), tm = setTimeout(() => ac.abort(), ms || 7000);
+  try{ const r = await fetch(RELAY + '/' + path, { method:'POST', body:text, signal:ac.signal }); if(!r.ok) return false; await r.text(); return true; }
+  catch(_){ return false; }
+  finally{ clearTimeout(tm); }
+}
+/* waits for one message. Renewed every so often so a connection that died silently cannot swallow messages. */
+async function relayGet(path, ms, holder){
+  const ac = new AbortController();
+  let renew = false;
+  const tm = setTimeout(() => { renew = true; ac.abort(); }, ms);
+  if(holder) holder.push(ac);
+  try{
+    const r = await fetch(RELAY + '/' + path, { signal:ac.signal });
+    if(!r.ok) throw new Error('relay ' + r.status);
+    return await r.text();
+  }catch(e){ if(renew){ const re = new Error('renew'); re.renew = true; throw re; } throw e; }
+  finally{ clearTimeout(tm); if(holder){ const i = holder.indexOf(ac); if(i >= 0) holder.splice(i, 1); } }
+}
+
+/* television side */
+let linkGen = 0, pairCode = '';
+const linkAcs = [];
+function startLink(){
+  const g = ++linkGen;
+  for(const ac of linkAcs.splice(0)){ try{ ac.abort(); }catch(_){} }
+  pairCode = '';
+  if(!isTv() || !canLink) return;
+  for(const k of (set.tvks || [])) listenLoop(g, k);
+  pairLoop(g);
+}
+async function pairLoop(g){
+  pairCode = String(100000 + crypto.getRandomValues(new Uint32Array(1))[0] % 900000);
+  if(!S) renderHome();
+  while(g === linkGen){
+    try{
+      const hello = JSON.parse(await relayGet('ay7k-p-' + pairCode, 50000, linkAcs));
+      const kp = await ecNew(), k = await ecShared(kp, hello.pub);
+      if(await relayPost('ay7k-p-' + pairCode + '-r', JSON.stringify({ pub: await ecPub(kp) }), 8000)){
+        set.tvks = [k].concat((set.tvks || []).filter((x) => x !== k)).slice(0, 3); saveSet();
+        log('tv-paired', { phones: set.tvks.length });
+        startLink(); return;
+      }
+    }catch(e){ if(g !== linkGen) return; if(!e.renew) await sleep(2500); }
+  }
+}
+async function listenLoop(g, k){
+  const path = await chanOf(k);
+  while(g === linkGen){
+    try{ onTvMessage(await unseal(k, await relayGet(path, 50000, linkAcs))); }
+    catch(e){ if(g !== linkGen) return; if(!e.renew) await sleep(2000); }
+  }
+}
+function onTvMessage(m){
+  if(!m || typeof m !== 'object') return;
+  log('tv-msg', m.t + (m.c ? ':' + m.c : ''));
+  if(typeof m.key === 'string' && m.key && m.key !== set.key){
+    set.key = m.key; saveSet();
+    for(const k in DOWN) delete DOWN[k];
+    refreshModels().then(fillModels).catch(() => {});
+    if(S){ S.halt = null; bandKey = ''; pump(); }
+  }
+  const id = m.t === 'open' ? parseVideoId(m.v) : null;
+  if(id){ openVideo(id); return; }
+  if(m.t === 'cmd' && S && player && playerReady){
+    if(m.c === 'toggle'){ let st = pstate; try{ const q = player.getPlayerState(); if(typeof q === 'number') st = q; }catch(_){} try{ if(st === 1 || st === 3) player.pauseVideo(); else player.playVideo(); }catch(_){} }
+    else if(m.c === 'back') seek(S.t - 10);
+    else if(m.c === 'fwd') seek(S.t + 10);
+    return;
+  }
+  if(!S) renderHome();
+}
+
+/* phone side */
+const paired = () => !isTv() && canLink && (set.tvs || []).length > 0;
+const toTv = () => paired() && set.target === 'tv';
+/* goes to every paired television at once; the one that is switched on takes it */
+async function tvSend(obj, ms){
+  const ks = set.tvs || [];
+  if(!ks.length) return false;
+  return new Promise((resolve) => {
+    let left = ks.length;
+    for(const k of ks){
+      (async () => relayPost(await chanOf(k), await seal(k, obj), ms || 6000))()
+        .then((ok) => { if(ok) resolve(true); else if(--left === 0) resolve(false); }, () => { if(--left === 0) resolve(false); });
+    }
+  });
+}
+async function pairTv(code){
+  const kp = await ecNew();
+  const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 14000);
+  try{
+    const reply = fetch(RELAY + '/ay7k-p-' + code + '-r', { signal:ac.signal }).then((r) => { if(!r.ok) throw new Error('relay'); return r.text(); });
+    reply.catch(() => {});
+    if(!(await relayPost('ay7k-p-' + code, JSON.stringify({ pub: await ecPub(kp) }), 8000))) return false;
+    const k = await ecShared(kp, JSON.parse(await reply).pub);
+    set.tvs = [k].concat((set.tvs || []).filter((x) => x !== k)).slice(0, 4); set.target = 'tv'; saveSet();
+    await sleep(500);                                   /* the television starts listening on the new channel */
+    for(let i = 0; i < 3; i++){ if(await tvSend({ t:'key', key:set.key || '' }, 5000)) break; await sleep(800); }
+    return true;
+  }catch(_){ return false; }
+  finally{ clearTimeout(tm); ac.abort(); }
+}
+function say(el, cls, text){ el.className = cls; el.textContent = text || ''; el.hidden = !text; }
+async function sendToTv(id){
+  say($('sendMsg'), 'hint', 'Televizyona gönderiliyor…');
+  const ok = await tvSend({ t:'open', v:id, key:set.key || '' });
+  say($('sendMsg'), ok ? 'ok' : 'err', ok ? 'Televizyonda açıldı.' : 'Televizyona ulaşılamadı. TV\'de Altyazı sayfası açık mı?');
+  log('tv-send', { id, ok });
+  return ok;
+}
+/* one entry point for "open this video": here, or on the television the phone is paired with */
+function go(id, push){ if(toTv()) sendToTv(id); else openVideo(id, push); }
+function renderLink(){
+  const tv = isTv();
+  $('tvPair').hidden = !(tv && canLink && pairCode);
+  if(tv){
+    const n = (set.tvks || []).length;
+    $('tvPairTitle').textContent = n ? 'Telefon bağlı' : 'Telefonla eşleştir';
+    $('tvCodeBig').textContent = pairCode.slice(0, 3) + ' ' + pairCode.slice(3);
+    $('tvCodeBig').classList.toggle('small', !!n);
+    $('tvPairText').textContent = n
+      ? 'Telefondan bir video gönder; burada kendiliğinden açılır. Başka bir telefonu eklemek için yukarıdaki kodu kullan.'
+      : 'Telefonda Altyazı\'yı aç ve “Televizyon” bölümüne bu kodu yaz. Çeviri anahtarı ve videolar telefondan gelir; bu ekrana bir şey yazman gerekmez.';
+    return;
+  }
+  const n = (set.tvs || []).length;
+  $('tvSec').hidden = !canLink;
+  $('targetSeg').hidden = !paired();
+  $('target-' + (toTv() ? 'tv' : 'phone')).checked = true;
+  $('openBtn').textContent = toTv() ? 'Televizyonda aç' : 'Altyazılı aç';
+  $('tvInfo').textContent = n ? (n === 1 ? 'Bir televizyon bağlı.' : n + ' televizyon bağlı.') + ' Açık olan televizyon gönderdiğin videoyu oynatır.'
+    : 'Televizyonun tarayıcısında bu adresi aç ve “TV olarak kur”a bas. Ekranda çıkan 6 haneli kodu buraya yaz; anahtarın ve videoların televizyona buradan gider.';
+  $('tvRemote').hidden = !n;
+  $('tvManage').hidden = !n;
+  $('tvPairRow').hidden = !!n && !renderLink.adding;
+}
+$('targetSeg').addEventListener('change', (e) => { set.target = e.target.value; saveSet(); renderLink(); });
+$('tvPairBtn').addEventListener('click', async () => {
+  const code = $('tvCode').value.replace(/\D/g, '');
+  if(code.length !== 6){ say($('tvMsg'), 'err', 'Kod 6 haneli olmalı.'); return; }
+  say($('tvMsg'), 'hint', 'Televizyon aranıyor…'); $('tvPairBtn').disabled = true;
+  const ok = await pairTv(code);
+  $('tvPairBtn').disabled = false;
+  if(ok){ $('tvCode').value = ''; renderLink.adding = false; }
+  say($('tvMsg'), ok ? 'ok' : 'err', ok ? (set.key ? 'Televizyon bağlandı, anahtar gönderildi.' : 'Televizyon bağlandı. Anahtarı kaydedince televizyona da gidecek.') : 'Televizyon bulunamadı. Kod doğru mu, TV\'de kodun göründüğü sayfa açık mı?');
+  log('tv-pair', { ok });
+  renderLink();
+});
+$('tvCode').addEventListener('input', () => { if($('tvCode').value.replace(/\D/g, '').length === 6 && !$('tvPairBtn').disabled) $('tvPairBtn').click(); });
+$('tvAdd').addEventListener('click', () => { renderLink.adding = true; renderLink(); $('tvCode').focus(); });
+$('tvForget').addEventListener('click', () => { set.tvs = []; set.target = 'phone'; saveSet(); say($('tvMsg'), 'hint', 'Bağlantılar kaldırıldı.'); renderLink(); });
+$('tvRemote').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-cmd]'); if(!b) return;
+  const ok = await tvSend({ t:'cmd', c:b.dataset.cmd }, 5000);
+  say($('tvMsg'), ok ? 'hint' : 'err', ok ? '' : 'Televizyona ulaşılamadı.');
+});
+
 /* ── home ── */
 function renderHome(){
   $('keyCard').hidden = !!set.key;
   $('tvAsk').hidden = !!set.role || !(window.matchMedia && matchMedia('(min-width: 900px)').matches);
-  if(isTv() && !S && !$('sheet').open) setTimeout(() => { try{ (set.key ? $('url') : $('keyHome')).focus(); }catch(_){} }, 60);
+  renderLink();
+  /* a paired television needs no typing, so nothing grabs focus (and no on-screen keyboard pops up) */
+  if(isTv() && !S && !$('sheet').open && set.key && !(set.tvks || []).length) setTimeout(() => { try{ $('url').focus(); }catch(_){} }, 60);
   const rec = store.get('ay:recent', []);
   $('recentSec').hidden = !rec.length;
   $('recent').innerHTML = rec.map((r) => {
@@ -1031,14 +1266,14 @@ $('openForm').addEventListener('submit', (e) => {
   const id = parseVideoId($('url').value);
   if(!id){ showOpenErr('Bu bir YouTube bağlantısına benzemiyor. Videonun “Paylaş → Bağlantıyı kopyala” bağlantısını yapıştır.'); return; }
   showOpenErr(''); $('url').value = ''; $('url').blur();
-  openVideo(id);
+  go(id);
 });
 $('pasteBtn').addEventListener('click', async () => {
   try{
     const txt = await navigator.clipboard.readText();
     $('url').value = txt.trim();
     const id = parseVideoId(txt);
-    if(id){ showOpenErr(''); $('url').value = ''; openVideo(id); }
+    if(id){ showOpenErr(''); $('url').value = ''; go(id); }
     else showOpenErr('Panoda bir YouTube bağlantısı yok.');
   }catch(_){ $('url').focus(); showOpenErr('Panoya erişilemedi. Kutuya basılı tutup “Yapıştır”ı seç.'); }
 });
@@ -1046,15 +1281,15 @@ $('url').addEventListener('input', () => {
   const v = $('url').value;
   if(!/youtu\.?be/i.test(v)) return;
   const id = parseVideoId(v);
-  if(id){ showOpenErr(''); $('url').value = ''; $('url').blur(); openVideo(id); }
+  if(id){ showOpenErr(''); $('url').value = ''; $('url').blur(); go(id); }
 });
 for(const [inp, btn] of [['keyHome', 'keyHomeSave'], ['keySet', 'keySetSave']]){
   $(inp).addEventListener('input', () => { if(/^AIza[0-9A-Za-z_-]{35}$/.test($(inp).value.trim())) $(btn).click(); });
 }
-function setRole(r){ set.role = r; saveSet(); applyLook(); bandKey = ''; if(S) renderLive(true); else renderHome(); }
+function setRole(r){ set.role = r; saveSet(); applyLook(); bandKey = ''; startLink(); if(S) renderLive(true); else renderHome(); }
 $('tvYes').addEventListener('click', () => setRole('tv'));
 $('tvNo').addEventListener('click', () => setRole('desk'));
-$('recent').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if(b) openVideo(b.dataset.id); });
+$('recent').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if(b) go(b.dataset.id); });
 $('homeBtn').addEventListener('click', () => { if(S) goHome(); else window.scrollTo({ top:0 }); });
 
 /* ── key ── */
@@ -1070,6 +1305,7 @@ async function saveKey(input, msgEl){
     say('ok', 'Anahtar çalışıyor.');
     log('key-ok');
     fillModels(); renderHome();
+    if(paired()) tvSend({ t:'key', key:set.key }, 5000);
     for(const k in DOWN) delete DOWN[k];
     if(S){ S.halt = null; for(const c of S.chunks) if(c.st === 'error') c.st = 'idle'; bandKey = ''; pump(); }
   }catch(e){
@@ -1186,10 +1422,12 @@ applyLook();
 renderHome();
 log('boot', { v: VERSION, standalone: !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches) || !!navigator.standalone, ua: navigator.userAgent.slice(0, 90) });
 const boot = idFromLocation();
-if(boot){ try{ history.replaceState({ v:boot }, '', location.pathname + '#v=' + boot); }catch(_){} openVideo(boot, false); }
+startLink();
+if(boot && toTv() && /[?&](url|text|title|v)=/.test(location.search)){ try{ history.replaceState(null, '', location.pathname); }catch(_){} sendToTv(boot); }
+else if(boot){ try{ history.replaceState({ v:boot }, '', location.pathname + '#v=' + boot); }catch(_){} openVideo(boot, false); }
 
 /* test hook: lets automated checks read internal state without touching the UI */
-window.__ay = { get S(){ return S; }, set, parseVideoId, parseT, parseSrt, normalize, planChunks, DOWN };
+window.__ay = { get S(){ return S; }, set, parseVideoId, parseT, parseSrt, normalize, planChunks, DOWN, get pairCode(){ return pairCode; } };
 })();
 </script>
 </body>
