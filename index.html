@@ -149,6 +149,34 @@ button{cursor:pointer;touch-action:manipulation}
   #watch{width:100%;max-width:880px;margin-inline:auto}
 }
 
+/* ── TV: the same page on a television. Picture fills the screen, the line sits under it, nothing else. ── */
+.tv-only{display:none}
+#app[data-role="tv"] .tv-only{display:block}
+#app[data-role="tv"] #home{max-width:900px;font-size:19px;gap:30px;padding-block:5vh}
+#app[data-role="tv"] .lede{font-size:clamp(30px,5.6vh,54px)}
+#app[data-role="tv"] .field input{height:66px;font-size:20px}
+#app[data-role="tv"] #openForm label{font-size:16px}
+#app[data-role="tv"] .field button,#app[data-role="tv"] .primary{height:60px;font-size:19px}
+#app[data-role="tv"] .field button{height:44px}
+#app[data-role="tv"] .recent button{grid-template-columns:176px minmax(0,1fr)}
+#app[data-role="tv"] .recent img{width:176px}
+#app[data-role="tv"] .recent b{font-size:19px}
+#app[data-role="tv"] .recent small{font-size:15px}
+#app[data-role="tv"] .recent button:focus-visible{background:var(--ink-2)}
+.tv-hint{margin:0;font-size:16px;line-height:1.5;color:var(--mute)}
+#app[data-role="tv"][data-view="watch"]{padding-top:0}
+#app[data-role="tv"][data-view="watch"] .top,#app[data-role="tv"] .bar,#app[data-role="tv"] .script{display:none}
+#app[data-role="tv"] #watch{--band-h:calc(var(--sub-size)*1.28*2 + 3.4vh);--pic-h:calc(100dvh - var(--band-h) - 3px);width:100%;max-width:none}
+#app[data-role="tv"] .stage{display:flex;justify-content:center}
+#app[data-role="tv"] .frame{flex:none;aspect-ratio:auto;height:var(--pic-h);width:calc(var(--pic-h)*16/9);max-width:100%;max-height:none}
+#app[data-role="tv"] .band,#app[data-role="tv"] .band.with-en{height:var(--band-h);min-height:0;overflow:hidden;padding:1vh 5vw;border-bottom:0}
+#app[data-role="tv"] .band .orig,#app[data-role="tv"] .band .raw{display:none}
+#app[data-role="tv"] .sub{max-width:34em}
+#app[data-role="tv"] .note{font-size:calc(var(--sub-size)*.7)}
+.ask{display:flex;gap:10px;flex-wrap:wrap}
+.ask .btn{height:50px}
+.btn.go{background:var(--sub);border-color:var(--sub);color:#16130a}
+
 /* ── settings sheet ── */
 dialog{width:100%;max-width:560px;max-height:88dvh;margin:auto auto 0;padding:8px 20px calc(24px + env(safe-area-inset-bottom,0px));border:0;border-radius:18px 18px 0 0;background:var(--ink-2);color:var(--text);overflow-y:auto}
 dialog::backdrop{background:rgba(4,6,10,.66)}
@@ -184,6 +212,15 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
   <main id="home">
     <h1 class="lede">İngilizce videoyu Türkçe altyazıyla izle.</h1>
 
+    <section class="card" id="tvAsk" hidden>
+      <h2>Bu ekran bir televizyon mu?</h2>
+      <p>TV düzeninde video ekranı kaplar, altyazı büyür, kumandanın OK tuşu oynatır ve duraklatır.</p>
+      <div class="ask">
+        <button class="btn go" type="button" id="tvYes">TV olarak kur</button>
+        <button class="btn" type="button" id="tvNo">Hayır</button>
+      </div>
+    </section>
+
     <form id="openForm" novalidate>
       <label for="url">YouTube bağlantısı</label>
       <div class="field">
@@ -192,6 +229,7 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
       </div>
       <button class="primary" type="submit">Altyazılı aç</button>
       <p class="err" id="openErr" hidden></p>
+      <p class="tv-hint tv-only">Kumandayla yazma. Telefonda Google TV uygulamasını aç ve kumandayı başlat: bu kutu seçiliyken telefonda klavye açılır. Bağlantıyı oraya yapıştır; video kendiliğinden açılır.</p>
     </form>
 
     <section class="card" id="keyCard" hidden>
@@ -207,6 +245,7 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
         <button type="button" id="keyHomeSave">Kaydet</button>
       </div>
       <p id="keyHomeMsg" hidden></p>
+      <p class="tv-hint tv-only">Anahtarı da telefondaki Google TV kumandasının klavyesinden yapıştır; kendiliğinden kaydedilir.</p>
     </section>
 
     <section class="sec" id="recentSec" hidden>
@@ -251,6 +290,14 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
       <div class="seg" id="colorSeg">
         <label><input type="radio" name="color" id="color-sub" value="sub">Sarı</label>
         <label><input type="radio" name="color" id="color-white" value="white">Beyaz</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Ekran düzeni</legend>
+      <div class="seg" id="roleSeg">
+        <label><input type="radio" name="role" id="role-desk" value="desk">Telefon, bilgisayar</label>
+        <label><input type="radio" name="role" id="role-tv" value="tv">Televizyon</label>
       </div>
     </fieldset>
 
@@ -328,7 +375,8 @@ function parseVideoId(s){
 }
 
 /* ───────── settings + diagnostics ───────── */
-const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0 }, store.get('ay:set', {}));
+const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0, role:'' }, store.get('ay:set', {}));
+const isTv = () => set.role === 'tv';
 const saveSet = () => store.set('ay:set', set);
 const LOG = store.get('ay:log', []);
 function log(ev, data){
@@ -340,8 +388,11 @@ function log(ev, data){
 }
 function applyLook(){
   const r = document.documentElement.style;
-  r.setProperty('--sub-size', set.size + 'px');
+  /* on a television the line scales with the screen, not with a fixed pixel size */
+  const vh = { 18:3.6, 22:4.4, 26:5.2, 31:6.1 }[set.size] || 4.4;
+  r.setProperty('--sub-size', isTv() ? 'clamp(24px, ' + vh + 'vh, 76px)' : set.size + 'px');
   r.setProperty('--sub-color', set.color === 'white' ? '#ffffff' : 'var(--sub)');
+  $('app').dataset.role = isTv() ? 'tv' : '';
   $('enBtn').setAttribute('aria-pressed', String(!!set.showEn));
   $('script').classList.toggle('show-en', !!set.showEn);
   $('band').classList.toggle('with-en', !!set.showEn);
@@ -563,7 +614,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 4;
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 5;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -638,7 +689,7 @@ function closeSession(){
 }
 function openVideo(id, push){
   closeSession();
-  S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, noDur:0, live:false, playerErr:'' };
+  S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, noDur:0, live:false, playerErr:'', autoplay:isTv(), started:false, readyAt:0 };
   const cached = store.get('ay:v:' + id, null);
   if(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch)){
     S.dur = cached.dur; S.title = cached.title || '';
@@ -690,8 +741,8 @@ async function mountPlayer(id, start){
     videoId: id, width:'100%', height:'100%',
     playerVars: { playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', start: start || undefined, origin: location.origin },
     events: {
-      onReady: () => { if(S && S.epoch === ep){ playerReady = true; grabMeta(); } },
-      onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; grabMeta(); wake(e.data === 1); },
+      onReady: () => { if(S && S.epoch === ep){ playerReady = true; S.readyAt = Date.now(); grabMeta(); if(S.autoplay){ try{ player.playVideo(); }catch(_){} } } },
+      onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; if(e.data === 1) S.started = true; grabMeta(); wake(e.data === 1); },
       onError: (e) => { if(!S || S.epoch !== ep) return; S.playerErr = PLAYER_ERRORS[e.data] || ('Oynatıcı hatası: ' + e.data); log('player-error', e.data); renderLive(true); }
     }
   });
@@ -883,6 +934,7 @@ function statusText(){
 function bandState(){
   const i = cueAt(S.t - set.offset);
   if(S.playerErr) return { k:'pe', note:S.playerErr };
+  if(isTv() && S.autoplay && !S.started && S.readyAt && Date.now() - S.readyAt > 3500) return { k:'tap', note:'Başlatmak için kumandada OK tuşuna bas ya da videoya tıkla.' };
   if(i >= 0) return { k:'c' + i + (set.showEn ? 'e' : ''), cue:S.cues[i], i };
   if(!set.key) return { k:'nokey', note:'Türkçe altyazı için çeviri anahtarı gerekiyor.', act:'key', label:'Anahtarı gir' };
   if(S.halt) return { k:'halt' + S.halt.msg, note:S.halt.msg, raw:S.halt.raw, act:S.halt.act, label:S.halt.label };
@@ -956,6 +1008,8 @@ setInterval(tick, 80);
 /* ── home ── */
 function renderHome(){
   $('keyCard').hidden = !!set.key;
+  $('tvAsk').hidden = !!set.role || !(window.matchMedia && matchMedia('(min-width: 900px)').matches);
+  if(isTv() && !S && !$('sheet').open) setTimeout(() => { try{ (set.key ? $('url') : $('keyHome')).focus(); }catch(_){} }, 60);
   const rec = store.get('ay:recent', []);
   $('recentSec').hidden = !rec.length;
   $('recent').innerHTML = rec.map((r) => {
@@ -988,6 +1042,18 @@ $('pasteBtn').addEventListener('click', async () => {
     else showOpenErr('Panoda bir YouTube bağlantısı yok.');
   }catch(_){ $('url').focus(); showOpenErr('Panoya erişilemedi. Kutuya basılı tutup “Yapıştır”ı seç.'); }
 });
+$('url').addEventListener('input', () => {
+  const v = $('url').value;
+  if(!/youtu\.?be/i.test(v)) return;
+  const id = parseVideoId(v);
+  if(id){ showOpenErr(''); $('url').value = ''; $('url').blur(); openVideo(id); }
+});
+for(const [inp, btn] of [['keyHome', 'keyHomeSave'], ['keySet', 'keySetSave']]){
+  $(inp).addEventListener('input', () => { if(/^AIza[0-9A-Za-z_-]{35}$/.test($(inp).value.trim())) $(btn).click(); });
+}
+function setRole(r){ set.role = r; saveSet(); applyLook(); bandKey = ''; if(S) renderLive(true); else renderHome(); }
+$('tvYes').addEventListener('click', () => setRole('tv'));
+$('tvNo').addEventListener('click', () => setRole('desk'));
 $('recent').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if(b) openVideo(b.dataset.id); });
 $('homeBtn').addEventListener('click', () => { if(S) goHome(); else window.scrollTo({ top:0 }); });
 
@@ -1035,6 +1101,25 @@ $('script').addEventListener('click', (e) => {
 });
 for(const ev of ['touchstart', 'wheel', 'pointerdown']) $('script').addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive:true });
 
+/* ── television remote: OK plays and pauses, left/right jump 10 s, up/down resize the line ── */
+document.addEventListener('keydown', (e) => {
+  if(!isTv() || !S || !player || !playerReady || $('sheet').open) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if(tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  const k = e.key;
+  if(k === 'Enter' || k === ' ' || k === 'MediaPlayPause' || k === 'MediaPlay' || k === 'MediaPause'){
+    /* ask the player itself: the last event we heard can be stale */
+    let st = pstate; try{ const g = player.getPlayerState(); if(typeof g === 'number') st = g; }catch(_){}
+    try{ if(st === 1 || st === 3) player.pauseVideo(); else player.playVideo(); }catch(_){}
+  } else if(k === 'ArrowLeft' || k === 'MediaRewind'){ seek(S.t - 10); }
+  else if(k === 'ArrowRight' || k === 'MediaFastForward'){ seek(S.t + 10); }
+  else if(k === 'ArrowUp' || k === 'ArrowDown'){
+    const sizes = [18, 22, 26, 31], i = Math.max(0, sizes.indexOf(set.size));
+    set.size = sizes[clamp(i + (k === 'ArrowUp' ? 1 : -1), 0, sizes.length - 1)]; saveSet(); applyLook();
+  } else return;
+  e.preventDefault();
+});
+
 /* ── settings sheet ── */
 function fillModels(){
   const sel = $('modelSel'), order = (set.models && set.models.order) || [];
@@ -1048,6 +1133,7 @@ function syncLabel(){
 function openSheet(){
   const r = $('size-' + set.size); if(r) r.checked = true;
   $('color-' + (set.color === 'white' ? 'white' : 'sub')).checked = true;
+  $('role-' + (isTv() ? 'tv' : 'desk')).checked = true;
   $('keySet').placeholder = set.key ? 'Kayıtlı. Yenisini yapıştır' : 'Anahtar';
   $('keySetMsg').hidden = true;
   fillModels(); syncLabel();
@@ -1060,6 +1146,7 @@ $('setBtn').addEventListener('click', openSheet);
 $('sheetClose').addEventListener('click', () => $('sheet').close());
 $('sheet').addEventListener('click', (e) => { if(e.target === $('sheet')) $('sheet').close(); });
 $('sizeSeg').addEventListener('change', (e) => { set.size = +e.target.value; saveSet(); applyLook(); });
+$('roleSeg').addEventListener('change', (e) => setRole(e.target.value));
 $('colorSeg').addEventListener('change', (e) => { set.color = e.target.value; saveSet(); applyLook(); });
 function nudge(d){ set.offset = clamp(Math.round((set.offset + d) * 10) / 10, -10, 10); saveSet(); syncLabel(); bandKey = ''; }
 $('syncEarly').addEventListener('click', () => nudge(-0.5));
