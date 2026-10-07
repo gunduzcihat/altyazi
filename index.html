@@ -251,7 +251,7 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
     <form id="openForm" novalidate>
       <label for="url">YouTube bağlantısı</label>
       <div class="field">
-        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="youtube.com/watch?v=…" enterkeyhint="go">
+        <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Video ya da oynatma listesi bağlantısı" enterkeyhint="go">
         <button type="button" id="pasteBtn">Yapıştır</button>
       </div>
       <div class="seg phone-only" id="targetSeg" hidden>
@@ -277,6 +277,8 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
         <button class="btn" type="button" data-cmd="back">10 sn geri</button>
         <button class="btn" type="button" data-cmd="toggle">Oynat / Dur</button>
         <button class="btn" type="button" data-cmd="fwd">10 sn ileri</button>
+        <button class="btn" type="button" data-cmd="prev">Önceki video</button>
+        <button class="btn" type="button" data-cmd="next" style="grid-column:span 2">Sonraki video</button>
       </div>
       <div class="keyrow" id="tvPairRow">
         <input id="tvCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="6 haneli kod" aria-label="TV'deki kod">
@@ -323,6 +325,7 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
     </button>
     <div class="bar">
       <button class="chip" id="backBtn" type="button">5 sn geri</button>
+      <button class="chip" id="nextBtn" type="button" hidden>Sonraki</button>
       <button class="chip" id="enBtn" type="button" aria-pressed="false">İngilizcesi</button>
       <span class="status" id="status"></span>
     </div>
@@ -438,6 +441,16 @@ function parseVideoId(s){
   if(m) return m[1];
   return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;
 }
+
+function parseListId(str){
+  const m = /[?&#]list=([A-Za-z0-9_-]{10,64})/.exec(String(str || ''));
+  return m ? m[1] : null;
+}
+function parseLink(str){
+  const v = parseVideoId(str), list = parseListId(str);
+  return (v || list) ? { v: v || '', list: list || '' } : null;
+}
+const hashFor = (id, list) => '#' + [id ? 'v=' + id : '', list ? 'list=' + list : ''].filter(Boolean).join('&');
 
 /* ───────── settings + diagnostics ───────── */
 const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0, role:'', tvs:[], tvks:[], target:'phone', over:true }, store.get('ay:set', {}));
@@ -677,7 +690,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 8;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 9;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -716,7 +729,7 @@ function cueAt(t){
   return (ans >= 0 && t < cs[ans].b) ? ans : -1;
 }
 function saveCache(){
-  if(!S || !S.dur) return;
+  if(!S || !S.dur || !S.id) return;
   const data = { v:CACHE_V, dur:S.dur, title:S.title, at:Date.now(),
     ch: S.chunks.map((c) => ({ s:c.s, e:c.e, c: c.st === 'ready' ? c.cues.map((x) => [x.a, x.b, x.tr, x.en]) : null })) };
   if(store.set('ay:v:' + S.id, data)) return;
@@ -729,11 +742,11 @@ function saveCache(){
   }
 }
 function touchRecent(extra){
-  if(!S) return;
+  if(!S || !S.id) return;
   let rec = store.get('ay:recent', []);
   const old = rec.find((r) => r.id === S.id) || {};
   rec = rec.filter((r) => r.id !== S.id);
-  rec.unshift(Object.assign({ id:S.id }, old, { title: S.title || old.title || '', dur: S.dur || old.dur || 0, at: Date.now() }, extra || {}));
+  rec.unshift(Object.assign({ id:S.id }, old, { title: S.title || old.title || '', dur: S.dur || old.dur || 0, at: Date.now(), list: S.list || '' }, extra || {}));
   for(const r of rec.splice(24)) store.del('ay:v:' + r.id);
   store.set('ay:recent', rec);
 }
@@ -747,24 +760,49 @@ function closeSession(){
   player = null; playerReady = false; pstate = -1;
   wake(false);
 }
-function openVideo(id, push){
-  closeSession();
-  S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, noDur:0, live:false, playerErr:'', autoplay:isTv(), started:false, readyAt:0 };
-  const cached = store.get('ay:v:' + id, null);
-  if(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch)){
-    S.dur = cached.dur; S.title = cached.title || '';
-    S.chunks = cached.ch.map((x) => ({ s:x.s, e:x.e, st: x.c ? 'ready' : 'idle', tries:0, msg:'',
+function loadCached(ses){
+  const cached = ses.id ? store.get('ay:v:' + ses.id, null) : null;
+  const ok = !!(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch));
+  if(ok){
+    ses.dur = cached.dur; ses.title = cached.title || '';
+    ses.chunks = cached.ch.map((x) => ({ s:x.s, e:x.e, st: x.c ? 'ready' : 'idle', tries:0, msg:'',
       cues: x.c ? x.c.map((q) => ({ a:q[0], b:q[1], tr:q[2], en:q[3] })) : null }));
   }
-  const rec = store.get('ay:recent', []).find((r) => r.id === id);
+  return ok;
+}
+function newSession(id, list, epoch){
+  return { id: id || '', list: list || '', epoch, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(),
+    halt:null, noDur:0, live:false, playerErr:'', autoplay:isTv(), started:false, readyAt:0, plN:0, plI:-1 };
+}
+function openVideo(id, push, list){
+  closeSession();
+  S = newSession(id, list, ++EPOCH);
+  const cached = loadCached(S);
+  const rec = id ? store.get('ay:recent', []).find((r) => r.id === id) : null;
   const start = rec && rec.pos > 10 && (!rec.dur || rec.pos < rec.dur - 20) ? Math.floor(rec.pos) : 0;
   S.t = start;
   setView('watch');
-  if(push !== false){ try{ history.pushState({ v:id }, '', location.pathname + '#v=' + id); }catch(_){} }
+  if(push !== false){ try{ history.pushState({ v:S.id, list:S.list }, '', location.pathname + hashFor(S.id, S.list)); }catch(_){} }
   rebuildCues(); renderStrip(); renderLive(true);
   touchRecent();
-  log('open', { id, cached: !!(cached && cached.v === CACHE_V), start });
-  mountPlayer(id, start);
+  log('open', { id:S.id, list:S.list ? 1 : 0, cached, start });
+  mountPlayer(S.id, start, S.list);
+  pump();
+}
+/* The player moved to another video by itself: next item of a playlist, or a suggestion tapped inside it.
+   The picture keeps playing; only the subtitle side starts over for the new video. */
+function switchVideo(vid){
+  const old = S;
+  savePos();
+  try{ old.ac.abort(); }catch(_){}
+  S = newSession(vid, old.list, old.epoch);
+  S.autoplay = old.autoplay; S.started = old.started; S.readyAt = old.readyAt; S.plN = old.plN; S.plI = old.plI;
+  const cached = loadCached(S);
+  anchorT = -1;
+  try{ history.replaceState({ v:S.id, list:S.list }, '', location.pathname + hashFor(S.id, S.list)); }catch(_){}
+  rebuildCues(); renderStrip(); renderLive(true);
+  touchRecent();
+  log('switch', { id:vid, from:old.id, cached });
   pump();
 }
 
@@ -791,15 +829,16 @@ const PLAYER_ERRORS = {
   150:'Videonun sahibi başka sitelerde oynatmayı kapatmış. Bu video burada açılamaz.',
   153:'YouTube bu sayfada oynatmaya izin vermedi (hata 153).'
 };
-async function mountPlayer(id, start){
+async function mountPlayer(id, start, list){
   const ep = S.epoch;
   $('frame').innerHTML = '<div id="player"></div>';
   try{ await loadYT(); }
   catch(_){ if(S && S.epoch === ep){ S.playerErr = 'YouTube oynatıcısı yüklenemedi. Bağlantını kontrol edip sayfayı yenile.'; renderLive(true); } return; }
   if(!S || S.epoch !== ep) return;
   player = new YT.Player('player', {
-    videoId: id, width:'100%', height:'100%',
-    playerVars: { playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', start: start || undefined, origin: location.origin },
+    videoId: id || undefined, width:'100%', height:'100%',
+    playerVars: Object.assign({ playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', start: start || undefined, origin: location.origin },
+      list ? { listType:'playlist', list } : {}),
     events: {
       onReady: () => { if(S && S.epoch === ep){ playerReady = true; S.readyAt = Date.now(); grabMeta(); if(S.autoplay){ try{ player.playVideo(); }catch(_){} } } },
       onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; $('app').classList.toggle('held', e.data !== 1 && e.data !== 3); if(e.data === 1) S.started = true; grabMeta(); wake(e.data === 1); },
@@ -811,6 +850,10 @@ function grabMeta(){
   if(!S || !player || !playerReady) return;
   try{
     const vd = player.getVideoData && player.getVideoData();
+    const vid = vd && typeof vd.video_id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(vd.video_id) ? vd.video_id : '';
+    if(vid && vid !== S.id){ switchVideo(vid); return; }
+    if(!S.id) return;                                              /* playlist link: wait until the player names its first video */
+    if(S.list){ try{ const pl = player.getPlaylist && player.getPlaylist(); S.plN = pl ? pl.length : 0; S.plI = player.getPlaylistIndex ? player.getPlaylistIndex() : -1; }catch(_){} }
     if(vd && vd.title && vd.title !== S.title){ S.title = vd.title; touchRecent(); }
     const d = player.getDuration && player.getDuration();
     if(d > 0 && (!S.dur || Math.abs(d - S.dur) > 2)){
@@ -843,18 +886,18 @@ function pump(){
   }
 }
 async function runChunk(c){
-  const ses = S, ep = S.epoch;
+  const ses = S;
   c.st = 'loading'; ses.inflight++; renderStrip(); renderLive(true);
   try{
     const cues = await translateChunk(ses, c);
-    if(!S || S.epoch !== ep) return;
+    if(S !== ses) return;
     c.cues = cues; c.st = 'ready'; c.msg = '';
     saveCache(); rebuildCues();
   }catch(e){
-    if(!S || S.epoch !== ep || (e && e.name === 'AbortError')) return;
+    if(S !== ses || (e && e.name === 'AbortError')) return;
     onChunkError(c, e);
   }finally{
-    if(S && S.epoch === ep){ ses.inflight--; renderStrip(); renderLive(true); pump(); }
+    if(S === ses){ ses.inflight--; renderStrip(); renderLive(true); pump(); }
   }
 }
 function onChunkError(c, e){
@@ -983,6 +1026,11 @@ function renderScript(){
   el.innerHTML = html;
 }
 function statusText(){
+  const pl = S && S.list && S.plN > 1 && S.plI >= 0 ? (S.plI + 1) + '/' + S.plN + ' · ' : '';
+  $('nextBtn').hidden = !(S && S.list && S.plN > 1);
+  return pl + statusCore();
+}
+function statusCore(){
   if(!S || !set.key || !S.chunks.length) return '';
   if(S.halt) return 'Çeviri durdu';
   if(S.chunks.some((c) => c.st === 'loading')) return 'Çevriliyor…';
@@ -1159,12 +1207,13 @@ function onTvMessage(m){
     refreshModels().then(fillModels).catch(() => {});
     if(S){ S.halt = null; bandKey = ''; pump(); }
   }
-  const id = m.t === 'open' ? parseVideoId(m.v) : null;
-  if(id){ openVideo(id); return; }
+  if(m.t === 'open'){ const v = parseVideoId(m.v) || '', list = /^[A-Za-z0-9_-]{10,64}$/.test(m.list || '') ? m.list : ''; if(v || list){ openVideo(v, undefined, list); return; } }
   if(m.t === 'cmd' && S && player && playerReady){
     if(m.c === 'toggle'){ let st = pstate; try{ const q = player.getPlayerState(); if(typeof q === 'number') st = q; }catch(_){} try{ if(st === 1 || st === 3) player.pauseVideo(); else player.playVideo(); }catch(_){} }
     else if(m.c === 'back') seek(S.t - 10);
     else if(m.c === 'fwd') seek(S.t + 10);
+    else if(m.c === 'next'){ try{ player.nextVideo(); }catch(_){} }
+    else if(m.c === 'prev'){ try{ player.previousVideo(); }catch(_){} }
     return;
   }
   if(!S) renderHome();
@@ -1201,15 +1250,15 @@ async function pairTv(code){
   finally{ clearTimeout(tm); ac.abort(); }
 }
 function say(el, cls, text){ el.className = cls; el.textContent = text || ''; el.hidden = !text; }
-async function sendToTv(id){
+async function sendToTv(link){
   say($('sendMsg'), 'hint', 'Televizyona gönderiliyor…');
-  const ok = await tvSend({ t:'open', v:id, key:set.key || '' });
+  const ok = await tvSend({ t:'open', v:link.v || '', list:link.list || '', key:set.key || '' });
   say($('sendMsg'), ok ? 'ok' : 'err', ok ? 'Televizyonda açıldı.' : 'Televizyona ulaşılamadı. TV\'de Altyazı sayfası açık mı?');
-  log('tv-send', { id, ok });
+  log('tv-send', { v:link.v, list:link.list ? 1 : 0, ok });
   return ok;
 }
-/* one entry point for "open this video": here, or on the television the phone is paired with */
-function go(id, push){ if(toTv()) sendToTv(id); else openVideo(id, push); }
+/* one entry point for "open this": here, or on the television the phone is paired with */
+function go(link, push){ if(toTv()) sendToTv(link); else openVideo(link.v, push, link.list); }
 function renderLink(){
   const tv = isTv();
   $('tvPair').hidden = !(tv && canLink && pairCode);
@@ -1265,8 +1314,8 @@ function renderHome(){
   const rec = store.get('ay:recent', []);
   $('recentSec').hidden = !rec.length;
   $('recent').innerHTML = rec.map((r) => {
-    const meta = [r.dur ? fmt(r.dur) : '', r.pos > 10 ? 'kaldığın yer ' + fmt(r.pos) : ''].filter(Boolean).join(' · ');
-    return '<li><button type="button" data-id="' + esc(r.id) + '"><img src="https://i.ytimg.com/vi/' + esc(r.id) + '/mqdefault.jpg" alt="" loading="lazy" width="112" height="63"><span><b>' + esc(r.title || 'YouTube videosu') + '</b>' + (meta ? '<small>' + esc(meta) + '</small>' : '') + '</span></button></li>';
+    const meta = [r.dur ? fmt(r.dur) : '', r.list ? 'listeden' : '', r.pos > 10 ? 'kaldığın yer ' + fmt(r.pos) : ''].filter(Boolean).join(' · ');
+    return '<li><button type="button" data-id="' + esc(r.id) + '" data-list="' + esc(r.list || '') + '"><img src="https://i.ytimg.com/vi/' + esc(r.id) + '/mqdefault.jpg" alt="" loading="lazy" width="112" height="63"><span><b>' + esc(r.title || 'YouTube videosu') + '</b>' + (meta ? '<small>' + esc(meta) + '</small>' : '') + '</span></button></li>';
   }).join('');
 }
 function goHome(push){
@@ -1280,25 +1329,25 @@ function showOpenErr(msg){ $('openErr').textContent = msg || ''; $('openErr').hi
 
 $('openForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  const id = parseVideoId($('url').value);
-  if(!id){ showOpenErr('Bu bir YouTube bağlantısına benzemiyor. Videonun “Paylaş → Bağlantıyı kopyala” bağlantısını yapıştır.'); return; }
+  const link = parseLink($('url').value);
+  if(!link){ showOpenErr('Bu bir YouTube bağlantısına benzemiyor. Videonun ya da oynatma listesinin “Paylaş → Bağlantıyı kopyala” bağlantısını yapıştır.'); return; }
   showOpenErr(''); $('url').value = ''; $('url').blur();
-  go(id);
+  go(link);
 });
 $('pasteBtn').addEventListener('click', async () => {
   try{
     const txt = await navigator.clipboard.readText();
     $('url').value = txt.trim();
-    const id = parseVideoId(txt);
-    if(id){ showOpenErr(''); $('url').value = ''; go(id); }
+    const link = parseLink(txt);
+    if(link){ showOpenErr(''); $('url').value = ''; go(link); }
     else showOpenErr('Panoda bir YouTube bağlantısı yok.');
   }catch(_){ $('url').focus(); showOpenErr('Panoya erişilemedi. Kutuya basılı tutup “Yapıştır”ı seç.'); }
 });
 $('url').addEventListener('input', () => {
   const v = $('url').value;
   if(!/youtu\.?be/i.test(v)) return;
-  const id = parseVideoId(v);
-  if(id){ showOpenErr(''); $('url').value = ''; $('url').blur(); go(id); }
+  const link = parseLink(v);
+  if(link){ showOpenErr(''); $('url').value = ''; $('url').blur(); go(link); }
 });
 for(const [inp, btn] of [['keyHome', 'keyHomeSave'], ['keySet', 'keySetSave']]){
   $(inp).addEventListener('input', () => { if(/^AIza[0-9A-Za-z_-]{35}$/.test($(inp).value.trim())) $(btn).click(); });
@@ -1306,7 +1355,7 @@ for(const [inp, btn] of [['keyHome', 'keyHomeSave'], ['keySet', 'keySetSave']]){
 function setRole(r){ set.role = r; saveSet(); applyLook(); bandKey = ''; startLink(); if(S) renderLive(true); else renderHome(); }
 $('tvYes').addEventListener('click', () => setRole('tv'));
 $('tvNo').addEventListener('click', () => setRole('desk'));
-$('recent').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if(b) go(b.dataset.id); });
+$('recent').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if(b) go({ v:b.dataset.id, list:b.dataset.list || '' }); });
 $('homeBtn').addEventListener('click', () => { if(S) goHome(); else window.scrollTo({ top:0 }); });
 
 /* ── key ── */
@@ -1347,6 +1396,7 @@ $('band').addEventListener('click', () => {
   else seek(S.t - 5);
 });
 $('backBtn').addEventListener('click', () => { if(S) seek(S.t - 5); });
+$('nextBtn').addEventListener('click', () => { try{ player.nextVideo(); }catch(_){} });
 $('enBtn').addEventListener('click', () => { set.showEn = !set.showEn; saveSet(); applyLook(); bandKey = ''; if(S) renderLive(true); });
 $('script').addEventListener('click', (e) => {
   const li = e.target.closest('li[data-i]');
@@ -1366,6 +1416,8 @@ document.addEventListener('keydown', (e) => {
     try{ if(st === 1 || st === 3) player.pauseVideo(); else player.playVideo(); }catch(_){}
   } else if(k === 'ArrowLeft' || k === 'MediaRewind'){ seek(S.t - 10); }
   else if(k === 'ArrowRight' || k === 'MediaFastForward'){ seek(S.t + 10); }
+  else if(k === 'MediaTrackNext'){ try{ player.nextVideo(); }catch(_){} }
+  else if(k === 'MediaTrackPrevious'){ try{ player.previousVideo(); }catch(_){} }
   else if(k === 'ArrowUp' || k === 'ArrowDown'){
     const sizes = [18, 22, 26, 31], i = Math.max(0, sizes.indexOf(set.size));
     set.size = sizes[clamp(i + (k === 'ArrowUp' ? 1 : -1), 0, sizes.length - 1)]; saveSet(); applyLook();
@@ -1424,16 +1476,17 @@ $('logCopy').addEventListener('click', async () => {
 });
 
 /* ── navigation + launch (pasted link, share sheet, home-screen icon) ── */
-function idFromLocation(){
+function linkFromLocation(){
   const q = new URLSearchParams(location.search);
-  for(const k of ['url', 'text', 'title', 'v']){ const id = parseVideoId(q.get(k)); if(id) return id; }
-  const h = /v=([A-Za-z0-9_-]{11})/.exec(location.hash);
-  return h ? h[1] : null;
+  for(const k of ['url', 'text', 'title']){ const l = parseLink(q.get(k)); if(l) return l; }
+  if(parseVideoId(q.get('v')) || parseListId(location.search)) return { v: parseVideoId(q.get('v')) || '', list: parseListId(location.search) || '' };
+  const h = /v=([A-Za-z0-9_-]{11})/.exec(location.hash), l = parseListId(location.hash);
+  return (h || l) ? { v: h ? h[1] : '', list: l || '' } : null;
 }
 window.addEventListener('popstate', () => {
-  const id = idFromLocation();
-  if(id && (!S || S.id !== id)) openVideo(id, false);
-  else if(!id && S) goHome(false);
+  const l = linkFromLocation();
+  if(l && (!S || (l.v ? S.id !== l.v : S.list !== l.list))) openVideo(l.v, false, l.list);
+  else if(!l && S) goHome(false);
 });
 document.addEventListener('visibilitychange', () => { if(document.hidden) savePos(); else if(pstate === 1) wake(true); });
 window.addEventListener('pagehide', savePos);
@@ -1441,13 +1494,13 @@ window.addEventListener('pagehide', savePos);
 applyLook();
 renderHome();
 log('boot', { v: VERSION, standalone: !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches) || !!navigator.standalone, ua: navigator.userAgent.slice(0, 90) });
-const boot = idFromLocation();
+const boot = linkFromLocation();
 startLink();
-if(boot && toTv() && /[?&](url|text|title|v)=/.test(location.search)){ try{ history.replaceState(null, '', location.pathname); }catch(_){} sendToTv(boot); }
-else if(boot){ try{ history.replaceState({ v:boot }, '', location.pathname + '#v=' + boot); }catch(_){} openVideo(boot, false); }
+if(boot && toTv() && /[?&](url|text|title|v|list)=/.test(location.search)){ try{ history.replaceState(null, '', location.pathname); }catch(_){} sendToTv(boot); }
+else if(boot){ try{ history.replaceState({ v:boot.v, list:boot.list }, '', location.pathname + hashFor(boot.v, boot.list)); }catch(_){} openVideo(boot.v, false, boot.list); }
 
 /* test hook: lets automated checks read internal state without touching the UI */
-window.__ay = { get S(){ return S; }, set, parseVideoId, parseT, parseSrt, normalize, planChunks, DOWN, get pairCode(){ return pairCode; } };
+window.__ay = { get S(){ return S; }, set, parseVideoId, parseLink, parseT, parseSrt, normalize, planChunks, DOWN, get pairCode(){ return pairCode; } };
 })();
 </script>
 </body>
