@@ -690,7 +690,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 9;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 10;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -835,16 +835,20 @@ async function mountPlayer(id, start, list){
   try{ await loadYT(); }
   catch(_){ if(S && S.epoch === ep){ S.playerErr = 'YouTube oynatıcısı yüklenemedi. Bağlantını kontrol edip sayfayı yenile.'; renderLive(true); } return; }
   if(!S || S.epoch !== ep) return;
-  player = new YT.Player('player', {
-    videoId: id || undefined, width:'100%', height:'100%',
-    playerVars: Object.assign({ playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', start: start || undefined, origin: location.origin },
-      list ? { listType:'playlist', list } : {}),
+  /* The real API rejects an options object that carries a videoId key without a valid id ("Invalid video id"),
+     so a playlist-only link must not mention videoId at all. */
+  const vars = { playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', origin: location.origin };
+  if(start) vars.start = start;
+  if(list){ vars.listType = 'playlist'; vars.list = list; }
+  const opts = { width:'100%', height:'100%', playerVars: vars,
     events: {
       onReady: () => { if(S && S.epoch === ep){ playerReady = true; S.readyAt = Date.now(); grabMeta(); if(S.autoplay){ try{ player.playVideo(); }catch(_){} } } },
       onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; $('app').classList.toggle('held', e.data !== 1 && e.data !== 3); if(e.data === 1) S.started = true; grabMeta(); wake(e.data === 1); },
       onError: (e) => { if(!S || S.epoch !== ep) return; S.playerErr = PLAYER_ERRORS[e.data] || ('Oynatıcı hatası: ' + e.data); log('player-error', e.data); renderLive(true); }
-    }
-  });
+    } };
+  if(id) opts.videoId = id;
+  try{ player = new YT.Player('player', opts); }
+  catch(e){ S.playerErr = 'Oynatıcı açılamadı: ' + (e && e.message || e); log('player-threw', String(e && e.message || e)); renderLive(true); }
 }
 function grabMeta(){
   if(!S || !player || !playerReady) return;
