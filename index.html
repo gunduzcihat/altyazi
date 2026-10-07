@@ -346,63 +346,70 @@ function applyLook(){
 
 /* ───────── Gemini client ───────── */
 const API = 'https://generativelanguage.googleapis.com/v1beta';
-const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
-const FLAG_ORDER = ['thinking', 'mediaRes', 'offsets', 'schema'];   // optional request features, dropped in this order on HTTP 400
-const SCHEMA = { type:'ARRAY', items:{ type:'OBJECT',
-  properties:{
-    a:{ type:'STRING', description:'cue start as MM:SS.s on the full-video timeline' },
-    b:{ type:'STRING', description:'cue end as MM:SS.s on the full-video timeline' },
-    en:{ type:'STRING', description:'the words spoken during the cue, verbatim' },
-    tr:{ type:'STRING', description:'the Turkish subtitle for the cue' } },
-  required:['a','b','en','tr'], propertyOrdering:['a','b','en','tr'] } };
-const SYS = `You are an expert subtitle translator who works directly from audio and writes Turkish subtitles.
+const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-flash-latest'];
+const FLAG_ORDER = ['thinking', 'mediaRes', 'offsets'];   // optional request features, dropped in this order on HTTP 400
+const REQ_TIMEOUT = 45000;
+const DOWN = {};                                            // model -> time until which it is skipped (overloaded, missing, out of quota)
+const SYS = `You are a professional subtitler who works directly from audio. Listen to the speech in the provided video segment and write bilingual subtitles for it in SRT format.
 
-TASK
-Listen to the speech in the provided video segment and return Turkish subtitles for it as a JSON array of cues in chronological order. Each cue is an object with exactly these string fields: "a", "b", "en", "tr". Return only the JSON array.
+Every cue has exactly this shape, followed by one blank line:
+<number>
+<HH:MM:SS,mmm> --> <HH:MM:SS,mmm>
+EN: <the words spoken during this cue, verbatim, lightly cleaned: no "um", "uh" or false starts>
+TR: <the Turkish subtitle for this cue>
 
 TIMING
-- "a" is the moment the cue's speech begins and "b" the moment it ends, written as MM:SS.s (minutes may exceed 59, for example "07:42.5" or "83:05.0").
-- Use the timeline of the FULL video, exactly as the YouTube player shows it. Do not count from the start of the segment.
-- Be as precise as you can. A cue must be on screen while its words are being spoken.
-- One cue covers about 2 to 6 seconds of speech and never more than 8 seconds.
+- Timestamps use the timeline of the FULL video, exactly as the YouTube player shows it. Do not count from the start of the segment.
+- A cue must be on screen while its words are being spoken. Be as precise as you can.
+- Standard subtitle segmentation: each cue is ONE short line of speech, at most 10 spoken words and at most 5 seconds. Split long sentences into several consecutive cues at natural phrase boundaries. Never put a long sentence into a single cue.
 - Cover all speech in the segment, from its first second to its last, without skipping anything. If a sentence is cut off at the edge of the segment, still subtitle the part you can hear.
 
-TEXT
-- "en": the words spoken during the cue, verbatim, lightly cleaned (drop "um", "uh" and false starts).
-- "tr": the Turkish subtitle for the cue.
+TURKISH
 - Translate meaning, not word order. Understand the whole sentence first, then spread its Turkish translation across the cues so that each cue reads as a natural phrase and the cues read in sequence form correct Turkish sentences. Turkish is verb-final, so a Turkish cue does not have to mirror the exact English words of that cue, but it must stay close to what is being said at that moment.
-- Write natural, fluent Turkish as in professional subtitling. No translationese, no word-for-word calques.
-- At most 84 characters per cue. Condense when needed, but never drop numbers, names, negations or conditions.
+- Natural, fluent Turkish as in professional subtitling. No translationese, no word-for-word calques.
+- At most 70 characters per TR line. Condense when needed, but never drop numbers, names, negations or conditions.
 - Keep proper names, product names, code and the technical terms Turkish professionals normally say in English (for example "prompt", "token", "framework", "design system") as they are. Otherwise use the established Turkish term.
 - Translate idioms and jokes by meaning, with a natural Turkish equivalent.
-- No speaker labels, no sound descriptions such as [music] or [applause], no notes or explanations.
-- If the speech is in a language other than English, write "en" in the spoken language and "tr" in Turkish. If it is already Turkish, copy it to "tr".
-- If the segment contains no speech, return an empty array [].`;
+- If the speech is in a language other than English, write the EN line in the spoken language and the TR line in Turkish. If it is already Turkish, copy it to TR.
 
-async function gFetch(path, body, signal){
-  let r;
+OUTPUT
+- Only the SRT. No code fences, no speaker labels, no sound descriptions such as [music] or [applause], no notes.
+- If the segment contains no speech at all, output the single word NONE.`;
+
+async function gFetch(path, body, signal, timeoutMs){
+  let r, timer = 0, timedOut = false;
+  const ac = new AbortController();
+  const relay = () => ac.abort();
+  if(signal){ if(signal.aborted) ac.abort(); else signal.addEventListener('abort', relay); }
+  if(timeoutMs) timer = setTimeout(() => { timedOut = true; ac.abort(); }, timeoutMs);
   try{
-    r = await fetch(API + '/' + path, {
-      method: body ? 'POST' : 'GET',
-      headers: Object.assign({ 'x-goog-api-key': set.key }, body ? { 'Content-Type':'application/json' } : {}),
-      body: body ? JSON.stringify(body) : undefined, signal });
-  }catch(e){
-    if(e && e.name === 'AbortError') throw e;
-    const ne = new Error('Ağ hatası: ' + (e && e.message || e)); ne.net = true; throw ne;
+    try{
+      r = await fetch(API + '/' + path, {
+        method: body ? 'POST' : 'GET',
+        headers: Object.assign({ 'x-goog-api-key': set.key }, body ? { 'Content-Type':'application/json' } : {}),
+        body: body ? JSON.stringify(body) : undefined, signal: ac.signal });
+    }catch(e){
+      if(timedOut){ const te = new Error('Model ' + Math.round(timeoutMs / 1000) + ' saniyede yanıt vermedi.'); te.timeout = true; throw te; }
+      if(e && e.name === 'AbortError') throw e;
+      const ne = new Error('Ağ hatası: ' + (e && e.message || e)); ne.net = true; throw ne;
+    }
+    let j = null;
+    try{ j = await r.json(); }catch(e){ if(timedOut){ const te = new Error('Model yanıtı yarıda kaldı.'); te.timeout = true; throw te; } if(e && e.name === 'AbortError') throw e; }
+    if(!r.ok){
+      const er = (j && j.error) || {};
+      const e = new Error(er.message || ('HTTP ' + r.status));
+      e.status = r.status; e.gstatus = er.status || ''; e.details = er.details || [];
+      throw e;
+    }
+    return j;
+  }finally{
+    clearTimeout(timer);
+    if(signal) signal.removeEventListener('abort', relay);
   }
-  let j = null;
-  try{ j = await r.json(); }catch(_){}
-  if(!r.ok){
-    const er = (j && j.error) || {};
-    const e = new Error(er.message || ('HTTP ' + r.status));
-    e.status = r.status; e.gstatus = er.status || ''; e.details = er.details || [];
-    throw e;
-  }
-  return j;
 }
 async function refreshModels(){
-  const j = await gFetch('models?pageSize=1000');
-  const re = /^models\/gemini-(\d+(?:\.\d+)?)-(flash-lite|flash|pro)$/;
+  const j = await gFetch('models?pageSize=1000', null, null, 20000);
+  const re = /^models\/gemini-(\d+(?:\.\d+)?)-(flash-lite|flash)$/;
   const found = [];
   for(const m of (j.models || [])){
     const mm = re.exec(m.name || '');
@@ -410,21 +417,23 @@ async function refreshModels(){
     if(m.supportedGenerationMethods && !m.supportedGenerationMethods.includes('generateContent')) continue;
     found.push({ id: m.name.slice(7), ver: parseFloat(mm[1]), kind: mm[2] });
   }
-  found.sort((x, y) => y.ver - x.ver);
-  const pick = (k) => (found.find((f) => f.kind === k) || {}).id || null;
-  set.models = { at: Date.now(), main: pick('flash'), lite: pick('flash-lite'), list: found.map((f) => f.id) };
+  /* fast models first: they answer in seconds, which is what keeps subtitles ahead of the playhead */
+  found.sort((x, y) => (x.kind === y.kind ? y.ver - x.ver : (x.kind === 'flash-lite' ? -1 : 1)));
+  set.models = { at: Date.now(), order: found.map((f) => f.id) };
   saveSet();
-  log('models', { main: set.models.main, lite: set.models.lite, n: found.length });
+  log('models', { first: set.models.order[0], n: found.length });
   return set.models;
 }
 function modelCandidates(){
-  const m = set.models || {};
   const arr = [];
   if(set.model && set.model !== 'auto') arr.push(set.model);
-  if(m.main) arr.push(m.main);
-  if(m.lite) arr.push(m.lite);
-  for(const f of FALLBACK_MODELS) arr.push(f);
+  for(const id of ((set.models && set.models.order) || [])) arr.push(id);
+  if(arr.length < 2) for(const f of FALLBACK_MODELS) arr.push(f);
   return [...new Set(arr)];
+}
+function liveModels(){
+  const now = Date.now();
+  return modelCandidates().filter((m) => !(DOWN[m] > now));
 }
 function isKeyError(e){
   if(e.status === 401) return true;
@@ -442,7 +451,6 @@ function buildBody(videoId, clipS, clipE, flags, userText){
   const video = { fileData: { fileUri: 'https://www.youtube.com/watch?v=' + videoId, mimeType: 'video/*' } };
   if(flags.offsets) video.videoMetadata = { startOffset: clipS + 's', endOffset: clipE + 's' };
   const gen = {};
-  if(flags.schema){ gen.responseMimeType = 'application/json'; gen.responseSchema = SCHEMA; }
   if(flags.mediaRes) gen.mediaResolution = 'MEDIA_RESOLUTION_LOW';
   if(flags.thinking) gen.thinkingConfig = { thinkingLevel: 'low' };
   return { systemInstruction: { parts: [{ text: SYS }] }, contents: [{ role:'user', parts: [video, { text: userText }] }], generationConfig: gen };
@@ -456,16 +464,56 @@ function extractText(j){
   const text = ((c.content && c.content.parts) || []).filter((p) => !p.thought && typeof p.text === 'string').map((p) => p.text).join('');
   return { text, finish: c.finishReason || '' };
 }
-function parseCueJson(text){
-  let t = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-  let arr = null;
-  try{ arr = JSON.parse(t); }catch(_){
-    const a = t.indexOf('['), z = t.lastIndexOf('}');
-    if(a >= 0 && z > a){ try{ arr = JSON.parse(t.slice(a, z + 1) + ']'); }catch(_){} }
+/* SRT-like text -> [{a, b, en, tr}] in seconds. Accepts HH:MM:SS,mmm and MM:SS,mmm, with comma or dot. */
+function parseSrt(text){
+  const t = String(text || '').replace(/\r/g, '').replace(/```[a-z]*\n?/gi, '').trim();
+  if(!t || /^NONE\.?$/i.test(t)) return [];
+  const TS = '((?:\\d{1,3}:)?\\d{1,3}:\\d{2}(?:[.,]\\d{1,3})?)';
+  const re = new RegExp(TS + '\\s*-+>\\s*' + TS + '[^\\n]*\\n([\\s\\S]*?)(?=\\n\\s*\\n|\\n\\d+\\s*\\n\\s*(?:\\d{1,3}:)?\\d{1,3}:\\d{2}|$)', 'g');
+  const out = [];
+  let m;
+  while((m = re.exec(t))){
+    const body = m[3];
+    const en = (/^\s*EN\s*[:：]\s*(.*)$/mi.exec(body) || [])[1] || '';
+    let tr = (/^\s*TR\s*[:：]\s*(.*)$/mi.exec(body) || [])[1] || '';
+    if(!tr && !en){ const lines = body.split('\n').map((l) => l.trim()).filter(Boolean); tr = lines[lines.length - 1] || ''; }
+    out.push({ a: parseT(m[1]), b: parseT(m[2]), en: en.trim(), tr: tr.trim() });
   }
-  if(arr && !Array.isArray(arr) && Array.isArray(arr.cues)) arr = arr.cues;
-  if(!Array.isArray(arr)) throw new Error('Model yanıtı okunamadı: ' + t.slice(0, 120));
-  return arr;
+  if(!out.length) throw new Error('Model yanıtı altyazı biçiminde değil: ' + t.slice(0, 100));
+  return out;
+}
+/* cut a line into about n parts at word boundaries, preferring to break after punctuation */
+function cutText(str, n){
+  const words = String(str || '').split(' ').filter(Boolean);
+  n = Math.max(1, Math.min(n, Math.floor(words.length / 2) || 1));
+  if(n === 1) return [words.join(' ')];
+  const target = words.join(' ').length / n, parts = [];
+  let cur = '';
+  for(const w of words){
+    const next = cur ? cur + ' ' + w : w;
+    if(cur && parts.length < n - 1 && (next.length > target * 1.08 || (cur.length > target * 0.62 && /[,;:.!?…]$/.test(cur)))){ parts.push(cur); cur = w; }
+    else cur = next;
+  }
+  parts.push(cur);
+  return parts;
+}
+/* models drift into long cues on dense speech: break those up so no line stays on screen as a paragraph */
+function splitLong(x){
+  const dur = x.b - x.a, len = x.tr.length;
+  const n = Math.max(Math.ceil(len / 76), len >= 48 ? Math.ceil(dur / 6.5) : 1);
+  if(n <= 1) return [x];
+  const tr = cutText(x.tr, n), en = cutText(x.en, tr.length);
+  if(tr.length === 1) return [x];
+  const total = tr.reduce((sum, p) => sum + p.length, 0);
+  const out = [];
+  let t = x.a;
+  for(let i = 0; i < tr.length; i++){
+    const d = dur * tr[i].length / total;
+    out.push({ a: t, b: t + d, tr: tr[i], en: en[i] || (i >= en.length ? '' : en[i]) });
+    t += d;
+  }
+  if(en.length < tr.length) out[0].en = x.en, out.slice(1).forEach((o) => { o.en = ''; });
+  return out;
 }
 /* raw model cues -> clean cues on the full-video timeline, limited to this chunk */
 function normalize(arr, c, clipS){
@@ -486,25 +534,25 @@ function normalize(arr, c, clipS){
     x.a = Math.max(0, x.a);
     if(next && next.a < x.a + 0.6) next.a = x.a + 0.6;            /* same-second cues: keep both readable */
     if(!isFinite(x.b) || x.b <= x.a) x.b = x.a + clamp(x.tr.length * 0.065, 1.2, 6);
-    if(x.b - x.a > 9) x.b = x.a + 9;
+    if(x.b - x.a > 20) x.b = x.a + 20;
     if(next && x.b > next.a) x.b = next.a;
-    x.a = Math.round(x.a * 10) / 10; x.b = Math.round(x.b * 10) / 10;
   }
-  return cs;
+  const out = [];
+  for(const x of cs) for(const y of splitLong(x)) out.push({ a: Math.round(y.a * 10) / 10, b: Math.round(y.b * 10) / 10, tr: y.tr, en: y.en });
+  return out;
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, TAIL = 45;
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
 function planChunks(dur){
-  const size = dur > 3600 ? 480 : 300;
   const out = [];
   let s = 0, e = (dur - FIRST < TAIL) ? dur : FIRST;
   while(s < dur - 0.5){
     out.push({ s, e, st:'idle', cues:null, tries:0, msg:'' });
-    s = e; e = Math.min(dur, s + size);
+    s = e; e = Math.min(dur, s + SIZE);
     if(dur - e < TAIL) e = dur;
   }
   return out;
@@ -570,7 +618,7 @@ function closeSession(){
 }
 function openVideo(id, push){
   closeSession();
-  S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, modelIdx:0, noDur:0, live:false, playerErr:'' };
+  S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, noDur:0, live:false, playerErr:'' };
   const cached = store.get('ay:v:' + id, null);
   if(cached && cached.dur && Array.isArray(cached.ch)){
     S.dur = cached.dur; S.title = cached.title || '';
@@ -680,14 +728,15 @@ async function runChunk(c){
 }
 function onChunkError(c, e){
   c.tries++;
-  log('chunk-error', { s:c.s, status:e.status, g:e.gstatus, m:e.message, tries:c.tries });
+  log('chunk-error', { s:c.s, model:e.model, status:e.status, g:e.gstatus, m:e.message, tries:c.tries });
   if(isKeyError(e)){
     S.halt = { msg:'Gemini anahtarı kabul edilmedi.', raw:e.message, act:'key', label:'Anahtarı düzelt' }; c.st = 'idle'; return;
   }
   if(e.status === 429){
     const q = quotaInfo(e);
     if(q.daily || c.tries >= 5){
-      if(S.modelIdx < modelCandidates().length - 1){ S.modelIdx++; c.tries = 0; c.st = 'idle'; log('model-switch', modelCandidates()[S.modelIdx]); return; }
+      if(e.model) DOWN[e.model] = Date.now() + 6 * 3600e3;
+      if(liveModels().length){ c.tries = 0; c.st = 'idle'; log('model-switch', liveModels()[0]); return; }
       S.halt = { msg:'Ücretsiz çeviri kotası doldu. Kota her gün sıfırlanır; hazır olan bölümler izlenebilir.', raw:e.message, act:'retry', label:'Yeniden dene' };
       c.st = 'idle'; return;
     }
@@ -695,7 +744,7 @@ function onChunkError(c, e){
     setTimeout(pump, c.retryAt - Date.now() + 50);
     return;
   }
-  if((e.net || e.status >= 500) && c.tries < 4){
+  if((e.net || e.timeout || e.status >= 500) && c.tries < 4){
     c.st = 'wait'; c.retryAt = Date.now() + [0, 3000, 8000, 20000][c.tries];
     setTimeout(pump, c.retryAt - Date.now() + 50);
     return;
@@ -706,31 +755,33 @@ async function translateChunk(ses, c){
   const dur = ses.dur;
   const clipS = Math.max(0, Math.floor(c.s - PAD));
   const clipE = Math.max(clipS + 1, Math.min(Math.floor(dur), Math.ceil(c.e + PAD)));
-  if(!set.models || Date.now() - (set.models.at || 0) > 7 * 864e5){ try{ await refreshModels(); }catch(e){ if(isKeyError(e)) throw e; log('models-fail', e.message); } }
+  if(!set.models || !set.models.order || Date.now() - (set.models.at || 0) > 7 * 864e5){ try{ await refreshModels(); }catch(e){ if(isKeyError(e)) throw e; log('models-fail', e.message); } }
   let ctx = '';
   const idx = ses.chunks.indexOf(c), prev = idx > 0 ? ses.chunks[idx - 1] : null;
   if(prev && prev.st === 'ready' && prev.cues && prev.cues.length){
-    ctx = '\nThe subtitles just before this segment were (for continuity of terms and tone, do not repeat them):\n' + prev.cues.slice(-3).map((x) => '- ' + x.tr).join('\n');
+    ctx = '\nThe Turkish subtitles just before this segment were (for continuity of terms and tone, do not repeat them):\n' + prev.cues.slice(-3).map((x) => '- ' + x.tr).join('\n');
   }
-  for(;;){
-    const models = modelCandidates();
-    const model = models[Math.min(ses.modelIdx, models.length - 1)];
-    const saved = store.get('ay:flags:' + model, {});
-    const flags = Object.assign({ thinking:true, mediaRes:true, offsets:true, schema:true }, saved);
+  let lastErr = null;
+  /* walk the model list: an overloaded or missing model is set aside for a while and the next one answers */
+  for(let round = 0; round < 6; round++){
+    let models = liveModels();
+    if(!models.length){ if(lastErr) throw lastErr; for(const k in DOWN) delete DOWN[k]; models = modelCandidates(); }
+    const model = models[0];
+    const flags = Object.assign({ thinking: !/lite/.test(model), mediaRes:true, offsets:true }, store.get('ay:flags:' + model, {}));
     let dropped = false, first = null;
     for(;;){
       const user = (flags.offsets
           ? 'This segment runs from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' of the full video'
           : 'Subtitle ONLY the part of the video from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' and ignore everything else')
         + ' (full video length ' + fmt(dur) + ').' + (ses.title ? ' Video title: "' + ses.title + '".' : '') + ctx
-        + '\nReturn the cues for this segment only, with times on the full-video timeline.';
+        + '\nWrite the SRT for this segment only, with timestamps on the full-video timeline.';
       try{
         const t0 = performance.now();
-        const j = await gFetch('models/' + model + ':generateContent', buildBody(ses.id, clipS, clipE, flags, user), ses.ac.signal);
+        const j = await gFetch('models/' + model + ':generateContent', buildBody(ses.id, clipS, clipE, flags, user), ses.ac.signal, REQ_TIMEOUT);
         const out = extractText(j);
-        const raw = parseCueJson(out.text);
+        const raw = parseSrt(out.text);
         const cues = normalize(raw, c, clipS);
-        if(raw.length && !cues.length){ log('out-of-range', { s:c.s, e:c.e, raw:raw.length, first:raw[0] && raw[0].a, last:raw[raw.length - 1] && raw[raw.length - 1].a }); throw new Error('Model bu bölüm (' + fmt(c.s) + '–' + fmt(c.e) + ') yerine videonun başka bir yerini çevirdi.'); }
+        if(raw.length && !cues.length){ log('out-of-range', { s:c.s, e:c.e, raw:raw.length, first:raw[0].a, last:raw[raw.length - 1].a }); throw new Error('Model bu bölüm (' + fmt(c.s) + '–' + fmt(c.e) + ') yerine videonun başka bir yerini çevirdi.'); }
         if(dropped) store.set('ay:flags:' + model, flags);
         log('chunk-ok', { s:c.s, e:c.e, model, raw:raw.length, kept:cues.length, fin:out.finish, sec:Math.round((performance.now() - t0) / 100) / 10, tok:(j.usageMetadata || {}).totalTokenCount });
         /* answer cut off by the output limit: keep what we have, queue the rest as its own chunk */
@@ -741,17 +792,21 @@ async function translateChunk(ses, c){
         return cues;
       }catch(e){
         if(e && e.name === 'AbortError') throw e;
-        if(e.status === 400 && !isKeyError(e)){
+        e.model = model; lastErr = e;
+        if(isKeyError(e)) throw e;
+        if(e.status === 400){
           first = first || e;
           const k = FLAG_ORDER.find((f) => flags[f]);
           if(k){ flags[k] = false; dropped = true; log('drop-flag', { model, k, m:e.message }); continue; }
           throw first;
         }
-        if(e.status === 404 && ses.modelIdx < models.length - 1){ ses.modelIdx++; log('model-404', model); break; }
+        if(e.status === 404){ DOWN[model] = Date.now() + 24 * 3600e3; log('model-missing', model); break; }
+        if(e.status >= 500 || e.timeout){ DOWN[model] = Date.now() + 5 * 60e3; log('model-busy', { model, status:e.status, timeout:!!e.timeout }); break; }
         throw e;
       }
     }
   }
+  throw lastErr || new Error('Çeviri modeli yanıt vermedi.');
 }
 
 /* ───────── rendering ───────── */
@@ -916,6 +971,7 @@ async function saveKey(input, msgEl){
     say('ok', 'Anahtar çalışıyor.');
     log('key-ok');
     fillModels(); renderHome();
+    for(const k in DOWN) delete DOWN[k];
     if(S){ S.halt = null; for(const c of S.chunks) if(c.st === 'error') c.st = 'idle'; bandKey = ''; pump(); }
   }catch(e){
     set.key = before;
@@ -931,7 +987,7 @@ $('band').addEventListener('click', () => {
   if(!S) return;
   const act = $('band').dataset.act;
   if(act === 'key'){ openSheet(); setTimeout(() => $('keySet').focus(), 50); return; }
-  if(act === 'retry'){ S.halt = null; S.modelIdx = 0; for(const c of S.chunks) if(c.st === 'error'){ c.st = 'idle'; c.tries = 0; } bandKey = ''; pump(); renderLive(true); return; }
+  if(act === 'retry'){ S.halt = null; for(const k in DOWN) delete DOWN[k]; for(const c of S.chunks) if(c.st === 'error'){ c.st = 'idle'; c.tries = 0; } bandKey = ''; pump(); renderLive(true); return; }
   /* tap the line to hear it again */
   const i = cueAt(S.t - set.offset);
   if(i >= 0){ const a = S.cues[i].a + set.offset; seek(S.t - a < 1.2 && i > 0 ? S.cues[i - 1].a + set.offset - 0.2 : a - 0.2); }
@@ -947,10 +1003,9 @@ for(const ev of ['touchstart', 'wheel', 'pointerdown']) $('script').addEventList
 
 /* ── settings sheet ── */
 function fillModels(){
-  const sel = $('modelSel'), m = set.models || {};
-  const auto = m.main ? 'Otomatik (' + m.main + ')' : 'Otomatik';
-  sel.innerHTML = '<option value="auto">' + esc(auto) + '</option>' + (m.list || []).map((id) => '<option value="' + esc(id) + '">' + esc(id) + '</option>').join('');
-  sel.value = (m.list || []).includes(set.model) ? set.model : 'auto';
+  const sel = $('modelSel'), order = (set.models && set.models.order) || [];
+  sel.innerHTML = '<option value="auto">' + esc(order[0] ? 'Otomatik (' + order[0] + ')' : 'Otomatik') + '</option>' + order.map((id) => '<option value="' + esc(id) + '">' + esc(id) + '</option>').join('');
+  sel.value = order.includes(set.model) ? set.model : 'auto';
 }
 function syncLabel(){
   const o = set.offset;
@@ -974,7 +1029,7 @@ $('colorSeg').addEventListener('change', (e) => { set.color = e.target.value; sa
 function nudge(d){ set.offset = clamp(Math.round((set.offset + d) * 10) / 10, -10, 10); saveSet(); syncLabel(); bandKey = ''; }
 $('syncEarly').addEventListener('click', () => nudge(-0.5));
 $('syncLate').addEventListener('click', () => nudge(0.5));
-$('modelSel').addEventListener('change', (e) => { set.model = e.target.value; saveSet(); if(S){ S.modelIdx = 0; S.halt = null; pump(); } });
+$('modelSel').addEventListener('change', (e) => { set.model = e.target.value; saveSet(); for(const k in DOWN) delete DOWN[k]; if(S){ S.halt = null; pump(); } });
 $('retranslate').addEventListener('click', () => {
   if(!S) return;
   const id = S.id;
@@ -1012,7 +1067,7 @@ const boot = idFromLocation();
 if(boot){ try{ history.replaceState({ v:boot }, '', location.pathname + '#v=' + boot); }catch(_){} openVideo(boot, false); }
 
 /* test hook: lets automated checks read internal state without touching the UI */
-window.__ay = { get S(){ return S; }, set, parseVideoId, parseT, normalize, planChunks };
+window.__ay = { get S(){ return S; }, set, parseVideoId, parseT, parseSrt, normalize, planChunks, DOWN };
 })();
 </script>
 </body>
