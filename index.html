@@ -481,7 +481,7 @@ TR: <the Turkish subtitle for this cue>
 
 TIMING
 - Timestamps are minutes:seconds,milliseconds. Two fields only, no hours field. Example: 01:07,250 is one minute seven seconds. Past one hour keep counting minutes: 75:20,000.
-- Timestamps use the timeline of the FULL video, exactly as the YouTube player shows it. Do not count from the start of the segment.
+- Write each timestamp as the video's own clock reads at that moment. Get the seconds and milliseconds right above all.
 - A cue must be on screen while its words are being spoken. Be as precise as you can.
 - Standard subtitle segmentation: each cue is ONE short line of speech, at most 10 spoken words and at most 5 seconds. Split long sentences into several consecutive cues at natural phrase boundaries. Never put a long sentence into a single cue.
 - Subtitle EVERYTHING that is said, from the first second of the segment to its last: casual chatter, mumbling, people talking over each other, interrupted or repeated lines, shouting and swearing all count as speech. Never skip a stretch because it is messy, unscripted or hard to hear; write your best hearing of it. Do not censor. If a sentence is cut off at the edge of the segment, still subtitle the part you can hear.
@@ -638,37 +638,33 @@ function splitLong(x){
   return out;
 }
 /* raw model cues -> clean cues on the full-video timeline, limited to this chunk */
+/* Model cues -> clean cues on the video's timeline, limited to this chunk.
+   Segments start on whole minutes and last about a minute. So a cue's place is fixed by the seconds the model
+   wrote plus the order of the cues; whatever it wrote in the minutes field (counting from the segment start,
+   a minute too many, hours shifted) cannot move a line any more. */
 function normalize(arr, c, clipS){
   const txt = (v) => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
-  let cs = arr.map((o) => ({ a: parseT(o && (o.a != null ? o.a : o.start)), b: parseT(o && (o.b != null ? o.b : o.end)), tr: txt(o && o.tr), en: txt(o && o.en) }))
-              .filter((x) => isFinite(x.a) && x.tr);
-  if(!cs.length) return [];
-  /* A stamp pair that runs backwards: one of the two was mistyped. Trust the one that fits the sequence. */
-  const lo = c.s - 1.5, hi = c.e + 1.5;
-  for(let i = 0; i < cs.length; i++){
-    const x = cs[i];
-    if(isFinite(x.b) && x.b < x.a){
-      const guess = clamp(x.tr.length * 0.065, 1, 4);
-      if(x.b >= lo && x.b < hi + 6) x.a = Math.max(i ? cs[i - 1].a + 0.3 : 0, x.b - guess); else x.b = NaN;
-    }
+  const raw = arr.map((o) => ({ a: parseT(o && (o.a != null ? o.a : o.start)), b: parseT(o && (o.b != null ? o.b : o.end)), tr: txt(o && o.tr), en: txt(o && o.en) }))
+                 .filter((x) => isFinite(x.a) && x.tr);
+  if(!raw.length) return [];
+  let lo = Infinity, hi = -Infinity;
+  for(const x of raw){ if(x.a < lo) lo = x.a; if(x.a > hi) hi = x.a; }
+  if(hi - lo > (c.e - clipS) + 75){ const e = new Error('Model bu bölümden (' + fmt(c.s) + '–' + fmt(c.e) + ') fazlasını çevirdi.'); e.badAnswer = true; throw e; }
+  const mod = (v) => ((v % 60) + 60) % 60;
+  let cs = [], base = 0, prev = -Infinity, fixed = 0;
+  for(const x of raw){
+    let t = base + mod(x.a - clipS);
+    if(t < prev - 30){ base += 60; t += 60; }                      /* seconds wrapped around: the next minute began */
+    prev = Math.max(prev, t);
+    let d = isFinite(x.b) ? mod(x.b - x.a) : NaN;
+    if(!(d > 0.15 && d <= 25)) d = NaN;
+    if(Math.abs(x.a - (clipS + t)) > 1) fixed++;
+    cs.push({ a: clipS + t, b: isFinite(d) ? clipS + t + d : NaN, tr: x.tr, en: x.en });
   }
-  /* Known slips of the whole timeline: counting from the clip start instead of the video start, or the
-     minutes field off by one. Move the answer only when it clearly does not fit as written and clearly fits moved. */
-  const fit = (off) => cs.reduce((n, x) => n + ((x.a + off >= lo && x.a + off < hi) ? 1 : 0), 0) / cs.length;
-  let off = 0;
-  if(fit(0) < 0.3){
-    let best = 0.8;
-    for(const cand of [clipS, -60, 60]){ if(!cand) continue; const f = fit(cand); if(f > best){ best = f; off = cand; } }
-  } else {
-    let min = Infinity, max = -Infinity;
-    for(const x of cs){ if(x.a < min) min = x.a; if(x.a > max) max = x.a; }
-    if(clipS >= 5 && min < clipS - 2 && max <= (c.e + PAD - clipS) + 5) off = clipS;
-  }
-  if(off){ log('timeline-shift', { s:c.s, off }); for(const x of cs){ x.a += off; if(isFinite(x.b)) x.b += off; } }
-  cs = cs.filter((x) => x.a >= lo && x.a < hi).sort((x, y) => x.a - y.a);
+  normalize.last = { n: raw.length, fixed, first: Math.round((cs[0].a - c.s) * 10) / 10, last: Math.round((cs[cs.length - 1].a - c.s) * 10) / 10 };
+  cs = cs.filter((x) => x.a >= c.s && x.a < c.e).sort((x, y) => x.a - y.a);
   for(let i = 0; i < cs.length; i++){
     const x = cs[i], next = cs[i + 1];
-    x.a = Math.max(0, x.a);
     if(next && next.a < x.a + 0.6) next.a = x.a + 0.6;            /* same-second cues: keep both readable */
     if(!isFinite(x.b) || x.b <= x.a) x.b = x.a + clamp(x.tr.length * 0.065, 1.2, 6);
     const stay = clamp(1.5 + x.tr.length * 0.11, 3, 9);
@@ -681,17 +677,17 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 7;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 8;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
 function planChunks(dur){
   const out = [];
-  let s = 0, e = (dur - FIRST < TAIL) ? dur : FIRST;
-  while(s < dur - 0.5){
+  for(let s = 0; s < dur - 0.5; ){
+    let e = Math.min(dur, s + SIZE);
+    if(dur - e < TAIL) e = dur;                                    /* a short tail joins the last minute */
     out.push({ s, e, st:'idle', cues:null, tries:0, msg:'' });
-    s = e; e = Math.min(dur, s + SIZE);
-    if(dur - e < TAIL) e = dur;
+    s = e;
   }
   return out;
 }
@@ -704,14 +700,11 @@ function rebuildCues(){
   const all = [];
   for(const c of S.chunks){
     if(c.st !== 'ready' || !c.cues) continue;
-    let own = c.cues;
-    const last = all[all.length - 1];
-    if(last){ let k = 0; while(k < own.length && own[k].a < last.b - 0.4) k++; own = own.slice(k); }   /* overlap at chunk seams */
-    for(const x of own) all.push({ a:x.a, b:x.b, tr:x.tr, en:x.en });
+    for(const x of c.cues) all.push({ a:x.a, b:x.b, tr:x.tr, en:x.en });
   }
   for(let i = 0; i < all.length - 1; i++){
     const gap = all[i + 1].a - all[i].b;
-    if(gap < 0 || gap < 1.2) all[i].b = all[i + 1].a;             /* no flicker between consecutive lines */
+    if(gap < 1.2) all[i].b = all[i + 1].a;                         /* no overlap, no flicker between consecutive lines */
   }
   S.cues = all; S.active = -2; bandKey = '';
   renderScript();
@@ -882,6 +875,7 @@ function onChunkError(c, e){
     setTimeout(pump, c.retryAt - Date.now() + 50);
     return;
   }
+  if(e.badAnswer && c.tries < 3){ c.st = 'wait'; c.retryAt = Date.now() + 600; setTimeout(pump, 700); return; }
   if((e.net || e.timeout || e.status >= 500) && c.tries < 4){
     c.st = 'wait'; c.retryAt = Date.now() + [0, 3000, 8000, 20000][c.tries];
     setTimeout(pump, c.retryAt - Date.now() + 50);
@@ -891,7 +885,7 @@ function onChunkError(c, e){
 }
 async function translateChunk(ses, c){
   const dur = ses.dur;
-  const clipS = Math.max(0, Math.floor(c.s - PAD));
+  const clipS = Math.floor(c.s);
   const clipE = Math.max(clipS + 1, Math.min(Math.floor(dur), Math.ceil(c.e + PAD)));
   if(!set.models || !set.models.order || Date.now() - (set.models.at || 0) > 7 * 864e5){ try{ await refreshModels(); }catch(e){ if(isKeyError(e)) throw e; log('models-fail', e.message); } }
   let ctx = '';
@@ -912,7 +906,7 @@ async function translateChunk(ses, c){
           ? 'This segment runs from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' of the full video'
           : 'Subtitle ONLY the part of the video from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' and ignore everything else')
         + ' (full video length ' + fmt(dur) + ').' + (ses.title ? ' Video title: "' + ses.title + '".' : '') + ctx
-        + '\nWrite the SRT for this segment only, with timestamps on the full-video timeline.';
+        + '\nWrite the SRT for this segment only.';
       try{
         const t0 = performance.now();
         const j = await gFetch('models/' + model + ':generateContent', buildBody(ses.id, clipS, clipE, flags, user), ses.ac.signal, REQ_TIMEOUT);
@@ -933,7 +927,7 @@ async function translateChunk(ses, c){
         }
         if(raw.length && !cues.length){ log('out-of-range', { s:c.s, e:c.e, raw:raw.length, first:raw[0].a, last:raw[raw.length - 1].a }); throw new Error('Model bu bölüm (' + fmt(c.s) + '–' + fmt(c.e) + ') yerine videonun başka bir yerini çevirdi.'); }
         if(dropped) store.set('ay:flags:' + model, flags);
-        log('chunk-ok', { s:c.s, e:c.e, model, raw:raw.length, kept:cues.length, fin:out.finish, sec:Math.round((performance.now() - t0) / 100) / 10, tok:(j.usageMetadata || {}).totalTokenCount });
+        log('chunk-ok', { s:c.s, e:c.e, model, raw:raw.length, kept:cues.length, fix:(normalize.last || {}).fixed, a0:(normalize.last || {}).first, aN:(normalize.last || {}).last, fin:out.finish, sec:Math.round((performance.now() - t0) / 100) / 10, tok:(j.usageMetadata || {}).totalTokenCount });
         /* answer cut off by the output limit: keep what we have, queue the rest as its own chunk */
         if(/MAX_TOKENS/.test(out.finish) && cues.length){
           const lastB = cues[cues.length - 1].b;
