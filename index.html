@@ -191,6 +191,19 @@ button{cursor:pointer;touch-action:manipulation}
 .ask .btn{height:50px}
 .btn.go{background:var(--sub);border-color:var(--sub);color:#16130a}
 
+/* ── line over the picture: the video takes the whole screen, the subtitle sits on it in a dark plate ── */
+#app[data-lay="over"][data-view="watch"]{padding-top:0}
+#app[data-lay="over"][data-view="watch"] .top,#app[data-lay="over"] .bar,#app[data-lay="over"] .script{display:none}
+#app[data-lay="over"] #watch{position:relative;width:100%;max-width:none}
+#app[data-lay="over"] .stage{display:block}
+#app[data-lay="over"] .frame{aspect-ratio:auto;width:100%;height:100dvh;max-width:none;max-height:none}
+#app[data-lay="over"] .strip{position:absolute;left:0;right:0;bottom:0;z-index:2;opacity:.8;background:none}
+#app[data-lay="over"] .band,#app[data-lay="over"] .band.with-en{position:absolute;left:0;right:0;bottom:9vh;z-index:2;height:auto;min-height:0;overflow:visible;padding:0 6vw;border:0;background:none;pointer-events:none;transition:bottom .2s}
+#app[data-lay="over"].held .band{bottom:25vh}                      /* paused: stay clear of the player's own controls */
+#app[data-lay="over"] .band > span{pointer-events:auto}
+#app[data-lay="over"] .sub,#app[data-lay="over"] .note{padding:.14em .55em;border-radius:.28em;background:rgba(6,8,12,.68)}
+#app[data-lay="over"] .band .orig,#app[data-lay="over"] .band .raw{display:none}
+
 /* ── settings sheet ── */
 dialog{width:100%;max-width:560px;max-height:88dvh;margin:auto auto 0;padding:8px 20px calc(24px + env(safe-area-inset-bottom,0px));border:0;border-radius:18px 18px 0 0;background:var(--ink-2);color:var(--text);overflow-y:auto}
 dialog::backdrop{background:rgba(4,6,10,.66)}
@@ -338,6 +351,14 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
     </fieldset>
 
     <fieldset>
+      <legend>Geniş ekranda altyazı</legend>
+      <div class="seg" id="overSeg">
+        <label><input type="radio" name="over" id="over-1" value="1">Videonun üstünde</label>
+        <label><input type="radio" name="over" id="over-0" value="0">Videonun altında</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
       <legend>Ekran düzeni</legend>
       <div class="seg" id="roleSeg">
         <label><input type="radio" name="role" id="role-desk" value="desk">Telefon, bilgisayar</label>
@@ -419,7 +440,8 @@ function parseVideoId(s){
 }
 
 /* ───────── settings + diagnostics ───────── */
-const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0, role:'', tvs:[], tvks:[], target:'phone' }, store.get('ay:set', {}));
+const set = Object.assign({ key:'', model:'auto', models:null, size:22, color:'sub', showEn:false, offset:0, role:'', tvs:[], tvks:[], target:'phone', over:true }, store.get('ay:set', {}));
+const sideways = window.matchMedia ? matchMedia('(orientation:landscape) and (max-height:540px)') : { matches:false };
 const isTv = () => set.role === 'tv';
 const saveSet = () => store.set('ay:set', set);
 const LOG = store.get('ay:log', []);
@@ -437,6 +459,7 @@ function applyLook(){
   r.setProperty('--sub-size', isTv() ? 'clamp(24px, ' + vh + 'vh, 76px)' : set.size + 'px');
   r.setProperty('--sub-color', set.color === 'white' ? '#ffffff' : 'var(--sub)');
   $('app').dataset.role = isTv() ? 'tv' : '';
+  $('app').dataset.lay = (set.over !== false && (isTv() || sideways.matches)) ? 'over' : '';
   $('enBtn').setAttribute('aria-pressed', String(!!set.showEn));
   $('script').classList.toggle('show-en', !!set.showEn);
   $('band').classList.toggle('with-en', !!set.showEn);
@@ -658,7 +681,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 6;
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3, VERSION = 7;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -786,7 +809,7 @@ async function mountPlayer(id, start){
     playerVars: { playsinline:1, fs:0, rel:0, modestbranding:1, cc_load_policy:0, hl:'tr', start: start || undefined, origin: location.origin },
     events: {
       onReady: () => { if(S && S.epoch === ep){ playerReady = true; S.readyAt = Date.now(); grabMeta(); if(S.autoplay){ try{ player.playVideo(); }catch(_){} } } },
-      onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; if(e.data === 1) S.started = true; grabMeta(); wake(e.data === 1); },
+      onStateChange: (e) => { if(!S || S.epoch !== ep) return; pstate = e.data; $('app').classList.toggle('held', e.data !== 1 && e.data !== 3); if(e.data === 1) S.started = true; grabMeta(); wake(e.data === 1); },
       onError: (e) => { if(!S || S.epoch !== ep) return; S.playerErr = PLAYER_ERRORS[e.data] || ('Oynatıcı hatası: ' + e.data); log('player-error', e.data); renderLive(true); }
     }
   });
@@ -1370,6 +1393,7 @@ function openSheet(){
   const r = $('size-' + set.size); if(r) r.checked = true;
   $('color-' + (set.color === 'white' ? 'white' : 'sub')).checked = true;
   $('role-' + (isTv() ? 'tv' : 'desk')).checked = true;
+  $('over-' + (set.over !== false ? '1' : '0')).checked = true;
   $('keySet').placeholder = set.key ? 'Kayıtlı. Yenisini yapıştır' : 'Anahtar';
   $('keySetMsg').hidden = true;
   fillModels(); syncLabel();
@@ -1383,6 +1407,8 @@ $('sheetClose').addEventListener('click', () => $('sheet').close());
 $('sheet').addEventListener('click', (e) => { if(e.target === $('sheet')) $('sheet').close(); });
 $('sizeSeg').addEventListener('change', (e) => { set.size = +e.target.value; saveSet(); applyLook(); });
 $('roleSeg').addEventListener('change', (e) => setRole(e.target.value));
+$('overSeg').addEventListener('change', (e) => { set.over = e.target.value === '1'; saveSet(); applyLook(); });
+if(sideways.addEventListener) sideways.addEventListener('change', applyLook);
 $('colorSeg').addEventListener('change', (e) => { set.color = e.target.value; saveSet(); applyLook(); });
 function nudge(d){ set.offset = clamp(Math.round((set.offset + d) * 10) / 10, -10, 10); saveSet(); syncLabel(); bandKey = ''; }
 $('syncEarly').addEventListener('click', () => nudge(-0.5));
