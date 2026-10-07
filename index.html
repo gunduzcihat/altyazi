@@ -312,9 +312,12 @@ function fmt(sec){
 function parseT(x){
   if(typeof x === 'number') return x;
   if(typeof x !== 'string') return NaN;
-  const p = x.trim().replace(',', '.').split(':').map(Number);
+  const parts = x.trim().replace(',', '.').split(':');
+  let ms = 0;
+  if(parts.length >= 3 && /^\d{3}$/.test(parts[parts.length - 1])) ms = Number(parts.pop()) / 1000;   /* MM:SS:mmm */
+  const p = parts.map(Number);
   if(!p.length || p.some((n) => !isFinite(n))) return NaN;
-  return p.reduce((acc, n) => acc * 60 + n, 0);
+  return p.reduce((acc, n) => acc * 60 + n, 0) + ms;
 }
 function parseVideoId(s){
   if(!s) return null;
@@ -354,15 +357,16 @@ const SYS = `You are a professional subtitler who works directly from audio. Lis
 
 Every cue has exactly this shape, followed by one blank line:
 <number>
-<HH:MM:SS,mmm> --> <HH:MM:SS,mmm>
+<MM:SS,mmm> --> <MM:SS,mmm>
 EN: <the words spoken during this cue, verbatim, lightly cleaned: no "um", "uh" or false starts>
 TR: <the Turkish subtitle for this cue>
 
 TIMING
+- Timestamps are minutes:seconds,milliseconds. Two fields only, no hours field. Example: 01:07,250 is one minute seven seconds. Past one hour keep counting minutes: 75:20,000.
 - Timestamps use the timeline of the FULL video, exactly as the YouTube player shows it. Do not count from the start of the segment.
 - A cue must be on screen while its words are being spoken. Be as precise as you can.
 - Standard subtitle segmentation: each cue is ONE short line of speech, at most 10 spoken words and at most 5 seconds. Split long sentences into several consecutive cues at natural phrase boundaries. Never put a long sentence into a single cue.
-- Cover all speech in the segment, from its first second to its last, without skipping anything. If a sentence is cut off at the edge of the segment, still subtitle the part you can hear.
+- Subtitle EVERYTHING that is said, from the first second of the segment to its last: casual chatter, mumbling, people talking over each other, interrupted or repeated lines, shouting and swearing all count as speech. Never skip a stretch because it is messy, unscripted or hard to hear; write your best hearing of it. Do not censor. If a sentence is cut off at the edge of the segment, still subtitle the part you can hear.
 
 TURKISH
 - Translate meaning, not word order. Understand the whole sentence first, then spread its Turkish translation across the cues so that each cue reads as a natural phrase and the cues read in sequence form correct Turkish sentences. Turkish is verb-final, so a Turkish cue does not have to mirror the exact English words of that cue, but it must stay close to what is being said at that moment.
@@ -521,13 +525,28 @@ function normalize(arr, c, clipS){
   let cs = arr.map((o) => ({ a: parseT(o && (o.a != null ? o.a : o.start)), b: parseT(o && (o.b != null ? o.b : o.end)), tr: txt(o && o.tr), en: txt(o && o.en) }))
               .filter((x) => isFinite(x.a) && x.tr);
   if(!cs.length) return [];
-  /* The model may count from the start of the clip instead of the start of the video. That reading only
-     holds when the answer begins before the clip does and never runs past the clip's own length. */
+  /* A stamp pair that runs backwards: one of the two was mistyped. Trust the one that fits the sequence. */
   const lo = c.s - 1.5, hi = c.e + 1.5;
-  let min = Infinity, max = -Infinity;
-  for(const x of cs){ if(x.a < min) min = x.a; if(x.a > max) max = x.a; }
-  const off = (clipS >= 5 && min < clipS - 2 && max <= (c.e + PAD - clipS) + 5) ? clipS : 0;
-  if(off) for(const x of cs){ x.a += off; if(isFinite(x.b)) x.b += off; }
+  for(let i = 0; i < cs.length; i++){
+    const x = cs[i];
+    if(isFinite(x.b) && x.b < x.a){
+      const guess = clamp(x.tr.length * 0.065, 1, 4);
+      if(x.b >= lo && x.b < hi + 6) x.a = Math.max(i ? cs[i - 1].a + 0.3 : 0, x.b - guess); else x.b = NaN;
+    }
+  }
+  /* Known slips of the whole timeline: counting from the clip start instead of the video start, or the
+     minutes field off by one. Move the answer only when it clearly does not fit as written and clearly fits moved. */
+  const fit = (off) => cs.reduce((n, x) => n + ((x.a + off >= lo && x.a + off < hi) ? 1 : 0), 0) / cs.length;
+  let off = 0;
+  if(fit(0) < 0.3){
+    let best = 0.8;
+    for(const cand of [clipS, -60, 60]){ if(!cand) continue; const f = fit(cand); if(f > best){ best = f; off = cand; } }
+  } else {
+    let min = Infinity, max = -Infinity;
+    for(const x of cs){ if(x.a < min) min = x.a; if(x.a > max) max = x.a; }
+    if(clipS >= 5 && min < clipS - 2 && max <= (c.e + PAD - clipS) + 5) off = clipS;
+  }
+  if(off){ log('timeline-shift', { s:c.s, off }); for(const x of cs){ x.a += off; if(isFinite(x.b)) x.b += off; } }
   cs = cs.filter((x) => x.a >= lo && x.a < hi).sort((x, y) => x.a - y.a);
   for(let i = 0; i < cs.length; i++){
     const x = cs[i], next = cs[i + 1];
@@ -543,7 +562,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30;
+const CONC = 2, AHEAD = 300, PAD = 3, FIRST = 60, SIZE = 90, TAIL = 30, CACHE_V = 3;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -586,7 +605,7 @@ function cueAt(t){
 }
 function saveCache(){
   if(!S || !S.dur) return;
-  const data = { v:1, dur:S.dur, title:S.title, at:Date.now(),
+  const data = { v:CACHE_V, dur:S.dur, title:S.title, at:Date.now(),
     ch: S.chunks.map((c) => ({ s:c.s, e:c.e, c: c.st === 'ready' ? c.cues.map((x) => [x.a, x.b, x.tr, x.en]) : null })) };
   if(store.set('ay:v:' + S.id, data)) return;
   /* storage full: drop the oldest other videos and try again */
@@ -620,7 +639,7 @@ function openVideo(id, push){
   closeSession();
   S = { id, epoch: ++EPOCH, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(), halt:null, noDur:0, live:false, playerErr:'' };
   const cached = store.get('ay:v:' + id, null);
-  if(cached && cached.dur && Array.isArray(cached.ch)){
+  if(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch)){
     S.dur = cached.dur; S.title = cached.title || '';
     S.chunks = cached.ch.map((x) => ({ s:x.s, e:x.e, st: x.c ? 'ready' : 'idle', tries:0, msg:'',
       cues: x.c ? x.c.map((q) => ({ a:q[0], b:q[1], tr:q[2], en:q[3] })) : null }));
@@ -632,7 +651,7 @@ function openVideo(id, push){
   if(push !== false){ try{ history.pushState({ v:id }, '', location.pathname + '#v=' + id); }catch(_){} }
   rebuildCues(); renderStrip(); renderLive(true);
   touchRecent();
-  log('open', { id, cached: !!cached, start });
+  log('open', { id, cached: !!(cached && cached.v === CACHE_V), start });
   mountPlayer(id, start);
   pump();
 }
@@ -780,7 +799,19 @@ async function translateChunk(ses, c){
         const j = await gFetch('models/' + model + ':generateContent', buildBody(ses.id, clipS, clipE, flags, user), ses.ac.signal, REQ_TIMEOUT);
         const out = extractText(j);
         const raw = parseSrt(out.text);
-        const cues = normalize(raw, c, clipS);
+        let cues = normalize(raw, c, clipS);
+        /* a long clip with almost nothing in it is either a quiet stretch or the model giving up early: ask once more, keep the fuller answer */
+        const spoken = cues.reduce((sum, x) => sum + (x.b - x.a), 0);
+        if(!c.second && clipE - clipS >= 25 && spoken < (clipE - clipS) * 0.2){
+          c.second = true;
+          try{
+            const j2 = await gFetch('models/' + model + ':generateContent', buildBody(ses.id, clipS, clipE, flags, user), ses.ac.signal, REQ_TIMEOUT);
+            const cues2 = normalize(parseSrt(extractText(j2).text), c, clipS);
+            const spoken2 = cues2.reduce((sum, x) => sum + (x.b - x.a), 0);
+            log('second-opinion', { s:c.s, first:cues.length, second:cues2.length });
+            if(spoken2 > spoken) cues = cues2;
+          }catch(e2){ if(e2 && e2.name === 'AbortError') throw e2; log('second-opinion-failed', e2.message); }
+        }
         if(raw.length && !cues.length){ log('out-of-range', { s:c.s, e:c.e, raw:raw.length, first:raw[0].a, last:raw[raw.length - 1].a }); throw new Error('Model bu bölüm (' + fmt(c.s) + '–' + fmt(c.e) + ') yerine videonun başka bir yerini çevirdi.'); }
         if(dropped) store.set('ay:flags:' + model, flags);
         log('chunk-ok', { s:c.s, e:c.e, model, raw:raw.length, kept:cues.length, fin:out.finish, sec:Math.round((performance.now() - t0) / 100) / 10, tok:(j.usageMetadata || {}).totalTokenCount });
@@ -861,6 +892,7 @@ function bandState(){
   if(c.st === 'wait'){ const sec = Math.max(1, Math.ceil((c.retryAt - Date.now()) / 1000)); return { k:'wait' + c.s + ':' + sec, note:'Kota sınırı. ' + sec + ' sn sonra devam edecek.' }; }
   if(c.st === 'error') return { k:'err' + c.s, note:'Bu bölüm çevrilemedi.', raw:c.msg, act:'retry', label:'Yeniden dene' };
   if(c.st === 'idle') return { k:'idle', note:'Çeviri sırada', busy:true };
+  if(c.st === 'ready' && c.cues && !c.cues.length) return { k:'empty' + c.s, note:'Bu bölümde konuşma bulunamadı.', act:'redo', label:'Yeniden çevir' };
   return { k:'none' };
 }
 function renderLive(force){
@@ -988,6 +1020,7 @@ $('band').addEventListener('click', () => {
   const act = $('band').dataset.act;
   if(act === 'key'){ openSheet(); setTimeout(() => $('keySet').focus(), 50); return; }
   if(act === 'retry'){ S.halt = null; for(const k in DOWN) delete DOWN[k]; for(const c of S.chunks) if(c.st === 'error'){ c.st = 'idle'; c.tries = 0; } bandKey = ''; pump(); renderLive(true); return; }
+  if(act === 'redo'){ const c = S.chunks[chunkAt(S.t)]; if(c && c.st === 'ready'){ c.st = 'idle'; c.cues = null; c.second = false; c.tries = 0; bandKey = ''; pump(); renderStrip(); renderLive(true); } return; }
   /* tap the line to hear it again */
   const i = cueAt(S.t - set.offset);
   if(i >= 0){ const a = S.cues[i].a + set.offset; seek(S.t - a < 1.2 && i > 0 ? S.cues[i - 1].a + set.offset - 0.2 : a - 0.2); }
