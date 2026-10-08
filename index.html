@@ -201,6 +201,22 @@ button{cursor:pointer;touch-action:manipulation}
 #app[data-lay="over"] .band,#app[data-lay="over"] .band.with-en{position:absolute;left:0;right:0;bottom:9vh;z-index:2;height:auto;min-height:0;overflow:visible;padding:0 6vw;border:0;background:none;pointer-events:none;transition:bottom .2s}
 #app[data-lay="over"].held .band{bottom:25vh}                      /* paused: stay clear of the player's own controls */
 #app[data-lay="over"] .band > span{pointer-events:auto}
+
+/* ── television with a pointer (Mi Box browsers move a cursor with the arrow keys): the picture is split into
+   three click areas. Cursor on the right + OK: 10 s ahead; on the left: 10 s back; middle: play or pause.
+   The bottom strip stays free, so the player's own progress bar can still be dragged. ── */
+.zones{display:none}
+#app[data-role="tv"][data-view="watch"] .zones{display:grid;grid-template-columns:1fr 1.2fr 1fr;position:absolute;left:0;right:0;top:0;height:82dvh;z-index:3}
+.zone{position:relative;display:grid;place-items:center;border:0;background:transparent;cursor:pointer;color:var(--text)}
+.zone span{padding:.4em .9em;border-radius:999px;background:rgba(6,8,12,.6);font-size:clamp(16px,2.6vh,28px);font-weight:600;opacity:0;transition:opacity .25s}
+.zones.awake .zone:hover span{opacity:1}
+.zone[data-z="back"]:hover{background:linear-gradient(90deg,rgba(255,216,74,.10),transparent)}
+.zone[data-z="fwd"]:hover{background:linear-gradient(270deg,rgba(255,216,74,.10),transparent)}
+.zones:not(.awake) .zone:hover{background:transparent}
+.zone-set{position:absolute;top:2vh;right:2vw;display:grid;place-items:center;width:clamp(44px,6vh,64px);height:clamp(44px,6vh,64px);border:0;border-radius:50%;background:rgba(6,8,12,.6);color:var(--text);cursor:pointer;opacity:0;transition:opacity .25s}
+.zones.awake .zone-set{opacity:1}
+.zone-set svg{width:55%;height:55%;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round}
+.flash{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);margin:0;padding:.35em .9em;border-radius:.4em;background:rgba(6,8,12,.75);color:var(--sub);font-size:clamp(22px,4.2vh,48px);font-weight:700;font-variant-numeric:tabular-nums;pointer-events:none;white-space:nowrap}
 #app[data-lay="over"] .sub,#app[data-lay="over"] .note{padding:.14em .55em;border-radius:.28em;background:rgba(6,8,12,.68)}
 #app[data-lay="over"] .band .orig,#app[data-lay="over"] .band .raw{display:none}
 
@@ -315,6 +331,13 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
 
   <main id="watch" hidden>
     <div class="stage"><div class="frame" id="frame"></div></div>
+    <div class="zones" id="zones" aria-hidden="true">
+      <button class="zone" type="button" data-z="back" tabindex="-1"><span>10 sn geri</span></button>
+      <button class="zone" type="button" data-z="toggle" tabindex="-1"><span>Oynat / duraklat</span></button>
+      <button class="zone" type="button" data-z="fwd" tabindex="-1"><span>10 sn ileri</span></button>
+      <button class="zone-set" type="button" id="zoneSet" tabindex="-1" aria-label="Ayarlar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+      <p class="flash" id="flash" hidden></p>
+    </div>
     <div class="strip" id="strip" aria-hidden="true"></div>
     <button class="band" id="band" type="button" aria-label="Satırı baştan dinle">
       <span class="sub" id="subTr"></span>
@@ -690,7 +713,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 10;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 11;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -1400,6 +1423,27 @@ $('band').addEventListener('click', () => {
   else seek(S.t - 5);
 });
 $('backBtn').addEventListener('click', () => { if(S) seek(S.t - 5); });
+/* television click areas */
+let flashTm = 0, awakeTm = 0;
+function flash(text){
+  const f = $('flash'); f.textContent = text; f.hidden = false;
+  clearTimeout(flashTm); flashTm = setTimeout(() => { f.hidden = true; }, 1100);
+}
+function wakeZones(){ $('zones').classList.add('awake'); clearTimeout(awakeTm); awakeTm = setTimeout(() => $('zones').classList.remove('awake'), 2500); }
+$('zones').addEventListener('mousemove', wakeZones, { passive:true });
+$('zones').addEventListener('click', (e) => {
+  if(!S || !player || !playerReady) return;
+  if(e.target.closest('#zoneSet')){ openSheet(); return; }
+  const z = e.target.closest('.zone'); if(!z) return;
+  wakeZones();
+  const dur = S.dur || 0;
+  if(z.dataset.z === 'back'){ const t = Math.max(0, S.t - 10); seek(t); flash('« 10 sn  ·  ' + fmt(t) + (dur ? ' / ' + fmt(dur) : '')); }
+  else if(z.dataset.z === 'fwd'){ const t = dur ? Math.min(dur - 1, S.t + 10) : S.t + 10; seek(t); flash('10 sn »  ·  ' + fmt(t) + (dur ? ' / ' + fmt(dur) : '')); }
+  else {
+    let st = pstate; try{ const q = player.getPlayerState(); if(typeof q === 'number') st = q; }catch(_){}
+    try{ if(st === 1 || st === 3){ player.pauseVideo(); flash('Duraklatıldı'); } else { player.playVideo(); flash('Oynatılıyor'); } }catch(_){}
+  }
+});
 $('nextBtn').addEventListener('click', () => { try{ player.nextVideo(); }catch(_){} });
 $('enBtn').addEventListener('click', () => { set.showEn = !set.showEn; saveSet(); applyLook(); bandKey = ''; if(S) renderLive(true); });
 $('script').addEventListener('click', (e) => {
