@@ -690,7 +690,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 4, VERSION = 12;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 13;
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -899,6 +899,7 @@ async function runChunk(c){
     if(S !== ses) return;
     c.cues = cues; c.st = 'ready'; c.msg = '';
     saveCache(); rebuildCues();
+    fillGaps(ses, c);
   }catch(e){
     if(S !== ses || (e && e.name === 'AbortError')) return;
     onChunkError(c, e);
@@ -931,6 +932,46 @@ function onChunkError(c, e){
     return;
   }
   c.st = 'error'; c.msg = e.message || String(e);
+}
+/* The model sometimes drops a stretch of speech (often the first seconds of a segment). Silent stretches of 7 s or
+   more are asked for again, in a clip that still starts on the segment's whole minute so timing stays exact; only
+   lines that land inside the hole are taken. The chunk is already playable while this runs. */
+const GAP = 7;
+function findGaps(c){
+  const gaps = []; let end = c.s;
+  for(const x of c.cues || []){ if(x.a - end >= GAP) gaps.push([end, x.a]); end = Math.max(end, x.b); }
+  if(c.e - end >= GAP + 3) gaps.push([end, c.e]);
+  return gaps.sort((p, q) => (q[1] - q[0]) - (p[1] - p[0])).slice(0, 2);
+}
+async function fillGaps(ses, c){
+  if(c.filled || !c.model) return;
+  c.filled = true;
+  for(const [g0, g1] of findGaps(c)){
+    if(S !== ses) return;
+    const clipS = Math.floor(c.s), clipE = Math.min(Math.floor(ses.dur), Math.ceil(g1 + 2));
+    if(clipE - clipS < 3) continue;
+    const user = 'This segment runs from ' + fmt(clipS) + ' to ' + fmt(clipE) + ' of the full video (full video length ' + fmt(ses.dur) + ').'
+      + (ses.title ? ' Video title: "' + ses.title + '".' : '')
+      + ' A previous pass left ' + fmt(Math.floor(g0)) + '–' + fmt(Math.ceil(g1)) + ' without subtitles. Listen to that part very carefully and subtitle every word spoken there.'
+      + '\nWrite the SRT for this segment only.';
+    try{
+      const j = await gFetch('models/' + c.model + ':generateContent', buildBody(ses.id, clipS, clipE, c.flags, user), ses.ac.signal, REQ_TIMEOUT);
+      if(S !== ses) return;
+      const got = normalize(parseSrt(extractText(j).text), { s:c.s, e:clipE }, clipS)
+        .filter((x) => x.a >= g0 - 0.3 && x.a < g1 - 0.3);
+      log('gap-fill', { s:c.s, g0:Math.round(g0 - c.s), g1:Math.round(g1 - c.s), got:got.length });
+      if(!got.length) continue;
+      const all = c.cues.concat(got).sort((x, y) => x.a - y.a);
+      for(let i = 0; i < all.length - 1; i++){
+        const x = all[i], n = all[i + 1];
+        if(n.a < x.a + 0.6) n.a = Math.round((x.a + 0.6) * 10) / 10;
+        if(x.b > n.a) x.b = n.a;
+        if(x.b <= x.a) x.b = Math.round((x.a + 0.5) * 10) / 10;
+      }
+      c.cues = all.filter((x) => x.a < c.e);
+      saveCache(); rebuildCues(); bandKey = ''; renderLive(true);
+    }catch(e){ if(e && e.name === 'AbortError') return; log('gap-fill-failed', { s:c.s, m:e.message }); }
+  }
 }
 async function translateChunk(ses, c){
   const dur = ses.dur;
@@ -982,6 +1023,7 @@ async function translateChunk(ses, c){
           const lastB = cues[cues.length - 1].b;
           if(c.e - lastB > 20){ const rest = { s:Math.floor(lastB), e:c.e, st:'idle', cues:null, tries:0, msg:'' }; c.e = rest.s; ses.chunks.splice(idx + 1, 0, rest); }
         }
+        c.model = model; c.flags = flags; c.user = user;
         return cues;
       }catch(e){
         if(e && e.name === 'AbortError') throw e;
@@ -1395,7 +1437,7 @@ $('band').addEventListener('click', () => {
   const act = $('band').dataset.act;
   if(act === 'key'){ openSheet(); setTimeout(() => $('keySet').focus(), 50); return; }
   if(act === 'retry'){ S.halt = null; for(const k in DOWN) delete DOWN[k]; for(const c of S.chunks) if(c.st === 'error'){ c.st = 'idle'; c.tries = 0; } bandKey = ''; pump(); renderLive(true); return; }
-  if(act === 'redo'){ const c = S.chunks[chunkAt(S.t)]; if(c && c.st === 'ready'){ c.st = 'idle'; c.cues = null; c.second = false; c.tries = 0; bandKey = ''; pump(); renderStrip(); renderLive(true); } return; }
+  if(act === 'redo'){ const c = S.chunks[chunkAt(S.t)]; if(c && c.st === 'ready'){ c.st = 'idle'; c.cues = null; c.second = false; c.filled = false; c.tries = 0; bandKey = ''; pump(); renderStrip(); renderLive(true); } return; }
   /* tap the line to hear it again */
   const i = cueAt(S.t - set.offset);
   if(i >= 0){ const a = S.cues[i].a + set.offset; seek(S.t - a < 1.2 && i > 0 ? S.cues[i - 1].a + set.offset - 0.2 : a - 0.2); }
