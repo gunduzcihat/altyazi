@@ -697,7 +697,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 14;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 15;
 /* Film mode: the strongest Flash model, the whole video translated up front. On for these by default, and for any video switched on in settings. */
 const FILM_IDS = ['oD8Jy7LpiaI'];
 const isFilm = (id) => !!id && (store.get('ay:film:' + id, null) ?? FILM_IDS.includes(id));
@@ -1113,7 +1113,7 @@ function bandState(){
   if(S.live) return { k:'live', note:'Canlı yayınlar desteklenmiyor.' };
   if(!S.chunks.length) return { k:'prep', note:'Video hazırlanıyor', busy:true };
   const c = S.chunks[chunkAt(S.t)];
-  if(c.st === 'loading') return { k:'load' + c.s, note:'Bu bölüm çevriliyor', busy:true };
+  if(c.st === 'loading'){ const fm = S.film ? 'Film modu · ' + statusCore().replace('Film modu · ', '') + ' · ' : ''; return { k:'load' + c.s + fm, note: fm + 'Bu bölüm çevriliyor', busy:true }; }
   if(c.st === 'wait'){ const sec = Math.max(1, Math.ceil((c.retryAt - Date.now()) / 1000)); return { k:'wait' + c.s + ':' + sec, note:'Kota sınırı. ' + sec + ' sn sonra devam edecek.' }; }
   if(c.st === 'error') return { k:'err' + c.s, note:'Bu bölüm çevrilemedi.', raw:c.msg, act:'retry', label:'Yeniden dene' };
   if(c.st === 'idle') return { k:'idle', note:'Çeviri sırada', busy:true };
