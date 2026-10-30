@@ -703,7 +703,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 17;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 18;
 /* Film mode: the strongest Flash model, the whole video translated up front. On for these by default, and for any video switched on in settings. */
 const FILM_IDS = ['oD8Jy7LpiaI'];
 const isFilm = (id) => !!id && (store.get('ay:film:' + id, null) ?? FILM_IDS.includes(id));
@@ -744,17 +744,19 @@ function cueAt(t){
   while(lo <= hi){ const mid = (lo + hi) >> 1; if(cs[mid].a <= t){ ans = mid; lo = mid + 1; } else hi = mid - 1; }
   return (ans >= 0 && t < cs[ans].b) ? ans : -1;
 }
+/* film translations live under their own key, so switching film mode off and on never overwrites one */
+const cacheKey = (id, film) => (film ? 'ay:f:' : 'ay:v:') + id;
 function saveCache(){
   if(!S || !S.dur || !S.id) return;
   const data = { v:CACHE_V, film:!!S.film, dur:S.dur, title:S.title, at:Date.now(),
     ch: S.chunks.map((c) => ({ s:c.s, e:c.e, c: c.st === 'ready' ? c.cues.map((x) => [x.a, x.b, x.tr, x.en]) : null })) };
-  if(store.set('ay:v:' + S.id, data)) return;
+  if(store.set(cacheKey(S.id, S.film), data)) return;
   /* storage full: drop the oldest other videos and try again */
   const rec = store.get('ay:recent', []);
   for(let i = rec.length - 1; i >= 0; i--){
-    if(rec[i].id === S.id) continue;
+    if(rec[i].id === S.id || isFilm(rec[i].id)) continue;
     store.del('ay:v:' + rec[i].id);
-    if(store.set('ay:v:' + S.id, data)) return;
+    if(store.set(cacheKey(S.id, S.film), data)) return;
   }
 }
 function touchRecent(extra){
@@ -763,7 +765,7 @@ function touchRecent(extra){
   const old = rec.find((r) => r.id === S.id) || {};
   rec = rec.filter((r) => r.id !== S.id);
   rec.unshift(Object.assign({ id:S.id }, old, { title: S.title || old.title || '', dur: S.dur || old.dur || 0, at: Date.now(), list: S.list || '' }, extra || {}));
-  for(const r of rec.splice(24)) store.del('ay:v:' + r.id);
+  for(const r of rec.splice(24)) if(!isFilm(r.id)) store.del('ay:v:' + r.id);   /* film translations are paid for: never dropped */
   store.set('ay:recent', rec);
 }
 
@@ -777,8 +779,10 @@ function closeSession(){
   wake(false);
 }
 function loadCached(ses){
-  const cached = ses.id ? store.get('ay:v:' + ses.id, null) : null;
-  const ok = !!(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch) && !!cached.film === !!ses.film);
+  let cached = ses.id ? store.get(cacheKey(ses.id, ses.film), null) : null;
+  if(!cached && ses.film){ const old = store.get('ay:v:' + ses.id, null); if(old && old.film) cached = old; }
+  /* a film translation stays valid across later format bumps */
+  const ok = !!(cached && (cached.v === CACHE_V || (cached.film && cached.v >= 5)) && cached.dur && Array.isArray(cached.ch) && !!cached.film === !!ses.film);
   if(ok){
     ses.dur = cached.dur; ses.title = cached.title || '';
     ses.chunks = cached.ch.map((x) => ({ s:x.s, e:x.e, st: x.c ? 'ready' : 'idle', tries:0, msg:'',
@@ -1553,7 +1557,7 @@ $('filmBtn').addEventListener('click', () => {
 $('retranslate').addEventListener('click', () => {
   if(!S) return;
   const id = S.id;
-  store.del('ay:v:' + id);
+  store.del(cacheKey(id, S.film)); if(S.film) store.del('ay:v:' + id);
   for(const k of modelCandidates()) store.del('ay:flags:' + k);
   $('sheet').close();
   openVideo(id, false);
