@@ -393,6 +393,8 @@ dialog::backdrop{background:rgba(4,6,10,.66)}
 
     <fieldset id="videoSet" hidden>
       <legend>Bu video</legend>
+      <div class="row"><button class="btn" type="button" id="filmBtn">Film modu</button></div>
+      <p class="hint" id="filmHint">En iyi modelle, videonun tamamını baştan çevirir. Uzun filmler için.</p>
       <div class="row"><button class="btn danger" type="button" id="retranslate">Çeviriyi sil, yeniden çevir</button></div>
     </fieldset>
 
@@ -566,6 +568,11 @@ function modelCandidates(){
   if(arr.length < 2) for(const f of FALLBACK_MODELS) arr.push(f);
   return [...new Set(arr)];
 }
+function filmOrder(list){
+  const ver = (m) => parseFloat((/gemini-(\d+(?:\.\d+)?)/.exec(m) || [0, 0])[1]);
+  const big = list.filter((m) => !/lite/.test(m)).sort((x, y) => ver(y) - ver(x));
+  return big.concat(list.filter((m) => /lite/.test(m)));
+}
 function liveModels(){
   const now = Date.now();
   return modelCandidates().filter((m) => !(DOWN[m] > now));
@@ -690,7 +697,10 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 13;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 14;
+/* Film mode: the strongest Flash model, the whole video translated up front. On for these by default, and for any video switched on in settings. */
+const FILM_IDS = ['oD8Jy7LpiaI'];
+const isFilm = (id) => !!id && (store.get('ay:film:' + id, null) ?? FILM_IDS.includes(id));
 let S = null, EPOCH = 0, player = null, playerReady = false, pstate = -1;
 let anchorT = -1, anchorAt = 0, lastSlow = 0, wakeLock = null, lastUserScroll = 0, bandKey = '';
 
@@ -730,7 +740,7 @@ function cueAt(t){
 }
 function saveCache(){
   if(!S || !S.dur || !S.id) return;
-  const data = { v:CACHE_V, dur:S.dur, title:S.title, at:Date.now(),
+  const data = { v:CACHE_V, film:!!S.film, dur:S.dur, title:S.title, at:Date.now(),
     ch: S.chunks.map((c) => ({ s:c.s, e:c.e, c: c.st === 'ready' ? c.cues.map((x) => [x.a, x.b, x.tr, x.en]) : null })) };
   if(store.set('ay:v:' + S.id, data)) return;
   /* storage full: drop the oldest other videos and try again */
@@ -762,7 +772,7 @@ function closeSession(){
 }
 function loadCached(ses){
   const cached = ses.id ? store.get('ay:v:' + ses.id, null) : null;
-  const ok = !!(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch));
+  const ok = !!(cached && cached.v === CACHE_V && cached.dur && Array.isArray(cached.ch) && !!cached.film === !!ses.film);
   if(ok){
     ses.dur = cached.dur; ses.title = cached.title || '';
     ses.chunks = cached.ch.map((x) => ({ s:x.s, e:x.e, st: x.c ? 'ready' : 'idle', tries:0, msg:'',
@@ -772,7 +782,7 @@ function loadCached(ses){
 }
 function newSession(id, list, epoch){
   return { id: id || '', list: list || '', epoch, title:'', dur:0, t:0, chunks:[], cues:[], active:-2, inflight:0, ac:new AbortController(),
-    halt:null, noDur:0, live:false, playerErr:'', autoplay:isTv(), started:false, readyAt:0, plN:0, plI:-1 };
+    halt:null, noDur:0, live:false, playerErr:'', autoplay:isTv(), started:false, readyAt:0, plN:0, plI:-1, film:isFilm(id) };
 }
 function openVideo(id, push, list){
   closeSession();
@@ -885,7 +895,10 @@ function savePos(){ if(S && S.t > 0) touchRecent({ pos: Math.round(S.t) }); }
 function pump(){
   if(!S || !S.chunks.length || !set.key || S.halt) return;
   const t = S.t || 0, now = Date.now();
-  for(let i = chunkAt(t); i < S.chunks.length && S.chunks[i].s < t + AHEAD; i++){
+  const n = S.chunks.length, from = chunkAt(t);
+  /* film mode: everything from the playhead to the end, then whatever lies before it */
+  const order = S.film ? [...Array(n).keys()].map((k) => (from + k) % n) : [...Array(n - from).keys()].map((k) => from + k).filter((i) => S.chunks[i].s < t + AHEAD);
+  for(const i of order){
     if(S.inflight >= CONC) break;
     const c = S.chunks[i];
     if(c.st === 'idle' || (c.st === 'wait' && now >= c.retryAt)) runChunk(c);
@@ -987,6 +1000,7 @@ async function translateChunk(ses, c){
   /* walk the model list: an overloaded or missing model is set aside for a while and the next one answers */
   for(let round = 0; round < 6; round++){
     let models = liveModels();
+    if(ses.film && !(set.model && set.model !== 'auto')) models = filmOrder(models);
     if(!models.length){ if(lastErr) throw lastErr; for(const k in DOWN) delete DOWN[k]; models = modelCandidates(); }
     const model = models[0];
     const flags = Object.assign({ thinking: !/lite/.test(model), mediaRes:true, offsets:true }, store.get('ay:flags:' + model, {}));
@@ -1081,6 +1095,7 @@ function statusText(){
 function statusCore(){
   if(!S || !set.key || !S.chunks.length) return '';
   if(S.halt) return 'Çeviri durdu';
+  if(S.film){ const r = S.chunks.filter((c) => c.st === 'ready').length; return r === S.chunks.length ? 'Film modu · çeviri tamam' : 'Film modu · %' + Math.floor(r * 100 / S.chunks.length) + ' çevrildi'; }
   if(S.chunks.some((c) => c.st === 'loading')) return 'Çevriliyor…';
   if(S.chunks.some((c) => c.st === 'wait')) return 'Kota bekleniyor';
   if(S.chunks.every((c) => c.st === 'ready')) return 'Çeviri tamam';
@@ -1493,6 +1508,7 @@ function openSheet(){
   fillModels(); syncLabel();
   $('logBox').value = LOG.slice().reverse().join('\n');
   $('verTag').textContent = 'Sürüm ' + VERSION + '.';
+  $('filmBtn').textContent = S && S.film ? 'Film modunu kapat' : 'Film modunu aç';
   const d = $('sheet');
   if(d.showModal){ if(!d.open) d.showModal(); } else d.setAttribute('open', '');
 }
@@ -1508,6 +1524,13 @@ function nudge(d){ set.offset = clamp(Math.round((set.offset + d) * 10) / 10, -1
 $('syncEarly').addEventListener('click', () => nudge(-0.5));
 $('syncLate').addEventListener('click', () => nudge(0.5));
 $('modelSel').addEventListener('change', (e) => { set.model = e.target.value; saveSet(); for(const k in DOWN) delete DOWN[k]; if(S){ S.halt = null; pump(); } });
+$('filmBtn').addEventListener('click', () => {
+  if(!S || !S.id) return;
+  const id = S.id;
+  store.set('ay:film:' + id, !S.film);
+  $('sheet').close();
+  openVideo(id, false);
+});
 $('retranslate').addEventListener('click', () => {
   if(!S) return;
   const id = S.id;
