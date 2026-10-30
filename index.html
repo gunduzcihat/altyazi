@@ -703,7 +703,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 16;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 17;
 /* Film mode: the strongest Flash model, the whole video translated up front. On for these by default, and for any video switched on in settings. */
 const FILM_IDS = ['oD8Jy7LpiaI'];
 const isFilm = (id) => !!id && (store.get('ay:film:' + id, null) ?? FILM_IDS.includes(id));
@@ -928,7 +928,7 @@ async function runChunk(c){
 }
 function onChunkError(c, e){
   c.tries++;
-  log('chunk-error', { s:c.s, model:e.model, status:e.status, g:e.gstatus, m:e.message, tries:c.tries });
+  if(!e.filmWait) log('chunk-error', { s:c.s, model:e.model, status:e.status, g:e.gstatus, m:e.message, tries:c.tries });
   if(isKeyError(e)){
     S.halt = { msg:'Gemini anahtarı kabul edilmedi.', raw:e.message, act:'key', label:'Anahtarı düzelt' }; c.st = 'idle'; return;
   }
@@ -1015,7 +1015,7 @@ async function translateChunk(ses, c){
       const strong = modelCandidates().filter((m) => !/lite/.test(m)), now = Date.now();
       const alive = filmOrder(models).filter((m) => !/lite/.test(m));
       if(alive.length) models = alive;
-      else if(!strong.length || strong.every((m) => DOWN[m] > now + 30 * 60e3)) models = filmOrder(models);
+      else if(!strong.length || strong.every((m) => DOWN[m] > now + 30 * 60e3)){ models = filmOrder(models); if(!ses.filmLite){ ses.filmLite = true; log('film-lite', 'strong models out for the day'); } }
       else { const e = new Error('Güçlü modeller şu an yoğun.'); e.filmWait = true; throw e; }
     }
     if(!models.length){ if(lastErr) throw lastErr; for(const k in DOWN) delete DOWN[k]; models = modelCandidates(); }
@@ -1112,7 +1112,7 @@ function statusText(){
 function statusCore(){
   if(!S || !set.key || !S.chunks.length) return '';
   if(S.halt) return 'Çeviri durdu';
-  if(S.film){ const r = S.chunks.filter((c) => c.st === 'ready').length; return r === S.chunks.length ? 'Film modu · çeviri tamam' : 'Film modu · %' + Math.floor(r * 100 / S.chunks.length) + ' çevrildi'; }
+  if(S.film){ const r = S.chunks.filter((c) => c.st === 'ready').length; return (S.filmLite ? 'Film modu · güçlü modelin günlük kotası doldu, hızlı modelle' : 'Film modu') + (r === S.chunks.length ? ' · çeviri tamam' : ' · %' + Math.floor(r * 100 / S.chunks.length) + ' çevrildi'); }
   if(S.chunks.some((c) => c.st === 'loading')) return 'Çevriliyor…';
   if(S.chunks.some((c) => c.st === 'wait')) return 'Kota bekleniyor';
   if(S.chunks.every((c) => c.st === 'ready')) return 'Çeviri tamam';
