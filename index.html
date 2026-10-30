@@ -512,6 +512,12 @@ TURKISH
 OUTPUT
 - Only the SRT. No code fences, no speaker labels, no sound descriptions such as [music] or [applause], no notes.
 - If the segment contains no speech at all, output the single word NONE.`;
+/* Film mode: whole clauses instead of 10-word slices. Dense talk (commentary, interviews) cut into 2-second
+   fragments makes Turkish, a verb-final language, land a cue late; a clause per cue keeps each line whole. */
+const FSYS = SYS
+  .replace(/- Standard subtitle segmentation:[^\n]*/, '- Segmentation for dense, continuous speech: each cue is one complete clause or short sentence, 2 to 7 seconds long, at most 16 spoken words. End a cue only where the speaker finishes a clause or pauses; never cut a clause in two. A long sentence becomes several cues, each a complete clause.')
+  .replace(/- Translate meaning, not word order\.[^\n]*/, '- Translate meaning, not word order. Each TR line translates exactly the EN words of the same cue: nothing pulled in from the next cue, nothing pushed to it. Because every cue is a complete clause, each TR line can be a complete, natural Turkish clause on its own.')
+  .replace('At most 70 characters per TR line.', 'At most 80 characters per TR line.');
 
 async function gFetch(path, body, signal, timeoutMs){
   let r, timer = 0, timedOut = false;
@@ -595,7 +601,7 @@ function buildBody(videoId, clipS, clipE, flags, userText){
   const gen = {};
   if(flags.mediaRes) gen.mediaResolution = 'MEDIA_RESOLUTION_LOW';
   if(flags.thinking) gen.thinkingConfig = { thinkingLevel: 'low' };
-  return { systemInstruction: { parts: [{ text: SYS }] }, contents: [{ role:'user', parts: [video, { text: userText }] }], generationConfig: gen };
+  return { systemInstruction: { parts: [{ text: flags.film ? FSYS : SYS }] }, contents: [{ role:'user', parts: [video, { text: userText }] }], generationConfig: gen };
 }
 function extractText(j){
   const c = j && j.candidates && j.candidates[0];
@@ -642,7 +648,7 @@ function cutText(str, n){
 /* models drift into long cues on dense speech: break those up so no line stays on screen as a paragraph */
 function splitLong(x){
   const dur = x.b - x.a, len = x.tr.length;
-  const n = Math.max(Math.ceil(len / 76), len >= 48 ? Math.ceil(dur / 6.5) : 1);
+  const n = Math.max(Math.ceil(len / (S && S.film ? 92 : 76)), len >= 48 ? Math.ceil(dur / (S && S.film ? 8 : 6.5)) : 1);
   if(n <= 1) return [x];
   const tr = cutText(x.tr, n), en = cutText(x.en, tr.length);
   if(tr.length === 1) return [x];
@@ -697,7 +703,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 15;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 16;
 /* Film mode: the strongest Flash model, the whole video translated up front. On for these by default, and for any video switched on in settings. */
 const FILM_IDS = ['oD8Jy7LpiaI'];
 const isFilm = (id) => !!id && (store.get('ay:film:' + id, null) ?? FILM_IDS.includes(id));
@@ -938,6 +944,10 @@ function onChunkError(c, e){
     setTimeout(pump, c.retryAt - Date.now() + 50);
     return;
   }
+  if(S.film && (e.filmWait || e.net || e.timeout || e.status >= 500 || (e.status === 429 && !quotaInfo(e).daily))){
+    c.tries = 0; c.st = 'wait'; c.retryAt = Date.now() + (e.status === 429 ? clamp(quotaInfo(e).delay || 20, 5, 90) * 1000 : 20000);
+    setTimeout(pump, c.retryAt - Date.now() + 50); return;
+  }
   if(e.badAnswer && c.tries < 3){ c.st = 'wait'; c.retryAt = Date.now() + 600; setTimeout(pump, 700); return; }
   if((e.net || e.timeout || e.status >= 500) && c.tries < 4){
     c.st = 'wait'; c.retryAt = Date.now() + [0, 3000, 8000, 20000][c.tries];
@@ -1000,10 +1010,17 @@ async function translateChunk(ses, c){
   /* walk the model list: an overloaded or missing model is set aside for a while and the next one answers */
   for(let round = 0; round < 6; round++){
     let models = liveModels();
-    if(ses.film && !(set.model && set.model !== 'auto')) models = filmOrder(models);
+    if(ses.film && !(set.model && set.model !== 'auto')){
+      /* film mode waits for a strong model instead of settling for a lite one; lite only once every strong model is out for hours (daily quota, missing) */
+      const strong = modelCandidates().filter((m) => !/lite/.test(m)), now = Date.now();
+      const alive = filmOrder(models).filter((m) => !/lite/.test(m));
+      if(alive.length) models = alive;
+      else if(!strong.length || strong.every((m) => DOWN[m] > now + 30 * 60e3)) models = filmOrder(models);
+      else { const e = new Error('Güçlü modeller şu an yoğun.'); e.filmWait = true; throw e; }
+    }
     if(!models.length){ if(lastErr) throw lastErr; for(const k in DOWN) delete DOWN[k]; models = modelCandidates(); }
     const model = models[0];
-    const flags = Object.assign({ thinking: !/lite/.test(model), mediaRes:true, offsets:true }, store.get('ay:flags:' + model, {}));
+    const flags = Object.assign({ thinking: !/lite/.test(model), mediaRes:true, offsets:true }, store.get('ay:flags:' + model, {}), { film: !!ses.film });
     let dropped = false, first = null;
     for(;;){
       const user = (flags.offsets
@@ -1050,7 +1067,7 @@ async function translateChunk(ses, c){
           throw first;
         }
         if(e.status === 404){ DOWN[model] = Date.now() + 24 * 3600e3; log('model-missing', model); break; }
-        if(e.status >= 500 || e.timeout){ DOWN[model] = Date.now() + 5 * 60e3; log('model-busy', { model, status:e.status, timeout:!!e.timeout }); break; }
+        if(e.status >= 500 || e.timeout){ DOWN[model] = Date.now() + (ses.film ? 90e3 : 5 * 60e3); log('model-busy', { model, status:e.status, timeout:!!e.timeout }); break; }
         throw e;
       }
     }
@@ -1113,8 +1130,10 @@ function bandState(){
   if(S.live) return { k:'live', note:'Canlı yayınlar desteklenmiyor.' };
   if(!S.chunks.length) return { k:'prep', note:'Video hazırlanıyor', busy:true };
   const c = S.chunks[chunkAt(S.t)];
-  if(c.st === 'loading'){ const fm = S.film ? 'Film modu · ' + statusCore().replace('Film modu · ', '') + ' · ' : ''; return { k:'load' + c.s + fm, note: fm + 'Bu bölüm çevriliyor', busy:true }; }
-  if(c.st === 'wait'){ const sec = Math.max(1, Math.ceil((c.retryAt - Date.now()) / 1000)); return { k:'wait' + c.s + ':' + sec, note:'Kota sınırı. ' + sec + ' sn sonra devam edecek.' }; }
+  const fm = S.film ? statusCore() + ' · ' : '';
+  if(c.st === 'loading') return { k:'load' + c.s + fm, note: fm + 'Bu bölüm çevriliyor', busy:true };
+  if(c.st === 'wait'){ const sec = Math.max(1, Math.ceil((c.retryAt - Date.now()) / 1000)); return { k:'wait' + c.s + ':' + sec + fm, note: fm + (S.film ? 'Model yoğun, ' : 'Kota sınırı. ') + sec + ' sn sonra tekrar denenecek.' }; }
+  if(S.film && c.st === 'idle') return { k:'idle' + fm, note: fm + 'Bu bölüm sırada', busy:true };
   if(c.st === 'error') return { k:'err' + c.s, note:'Bu bölüm çevrilemedi.', raw:c.msg, act:'retry', label:'Yeniden dene' };
   if(c.st === 'idle') return { k:'idle', note:'Çeviri sırada', busy:true };
   if(c.st === 'ready' && c.cues && !c.cues.length) return { k:'empty' + c.s, note:'Bu bölümde konuşma bulunamadı.', act:'redo', label:'Yeniden çevir' };
