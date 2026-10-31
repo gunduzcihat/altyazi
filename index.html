@@ -703,7 +703,7 @@ function normalize(arr, c, clipS){
 }
 
 /* ───────── watch session ───────── */
-const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 18;
+const CONC = 2, AHEAD = 300, PAD = 3, SIZE = 60, TAIL = 20, CACHE_V = 5, VERSION = 19;
 /* Film mode: the strongest Flash model, the whole video translated up front. On for these by default, and for any video switched on in settings. */
 const FILM_IDS = ['oD8Jy7LpiaI'];
 const isFilm = (id) => !!id && (store.get('ay:film:' + id, null) ?? FILM_IDS.includes(id));
@@ -1140,7 +1140,12 @@ function bandState(){
   if(S.film && c.st === 'idle') return { k:'idle' + fm, note: fm + 'Bu bölüm sırada', busy:true };
   if(c.st === 'error') return { k:'err' + c.s, note:'Bu bölüm çevrilemedi.', raw:c.msg, act:'retry', label:'Yeniden dene' };
   if(c.st === 'idle') return { k:'idle', note:'Çeviri sırada', busy:true };
-  if(c.st === 'ready' && c.cues && !c.cues.length) return { k:'empty' + c.s, note:'Bu bölümde konuşma bulunamadı.', act:'redo', label:'Yeniden çevir' };
+  if(c.st === 'ready' && c.cues && !c.cues.length){
+    /* shown for 10 s when the playhead enters a silent stretch, then the picture is left clear */
+    if(S.emptyAt !== c.s){ S.emptyAt = c.s; S.emptySince = Date.now(); }
+    if(Date.now() - S.emptySince > 10000) return { k:'none' };
+    return { k:'empty' + c.s, note:'Bu bölümde konuşma bulunamadı.', act:'redo', label:'Yeniden çevir' };
+  }
   return { k:'none' };
 }
 function renderLive(force){
